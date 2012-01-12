@@ -15,11 +15,13 @@ Requirements
 ------------
 
 KFusion depends on the following libraries:
+
 * http://www.edwardrosten.com/cvd/toon.html
 * http://www.edwardrosten.com/cvd/index.html
 * http://openkinect.org/
 
 and of course the CUDA 4.0 SDK by NVidia
+
 * http://developer.nvidia.com/category/zone/cuda-zone
 
 Install
