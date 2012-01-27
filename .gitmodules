@@ -1,3 +1,6 @@
 [submodule "dep/libcvd"]
 	path = dep/libcvd
 	url = git://git.savannah.nongnu.org/libcvd.git
+[submodule "dep/libfreenect"]
+	path = dep/libfreenect
+	url = https://github.com/OpenKinect/libfreenect.git
