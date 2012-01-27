@@ -35,13 +35,26 @@ if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
 		cutil_math.h
 		)
 	
-	CUDA_ADD_EXECUTABLE(kfusion_test
+	CUDA_ADD_LIBRARY(kfusion SHARED
 		${kfusion_cuda_srcs}
-		kinect.cpp
 		perfstats.h
 		)
 		
-	target_link_libraries(kfusion_test 
-		cvd ${ext_libs} ${FREENECT_LIBRARIES} ${OPENGL_LIBRARIES})
+	target_link_libraries(kfusion 
+		cvd ${ext_libs} ${FREENECT_LIBRARIES} ${OPENGL_LIBRARIES}
+		)
+	
+	add_executable(kfusion_kinect
+		kinect.cpp
+		)
+
+	target_link_libraries(kfusion_kinect kfusion) 
+
+	add_executable(kfusion_test
+		test.cpp
+		)
+		
+	target_link_libraries(kfusion_test kfusion) 
+	
 endif()
 	

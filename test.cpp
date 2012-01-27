@@ -12,8 +12,11 @@
 #include <cvd/vision.h>
 #include "perfstats.h"
 
+CVD::cvd_timer timer;
+
 using namespace std;
 using namespace TooN;
+
 
 int main(int argc, char ** argv) {
 
@@ -203,8 +206,8 @@ int main(int argc, char ** argv) {
             cout << kfusion.pose << endl;
         }
         Stats.sample("events");
-        Stats.sample("total track", CVD::timer.get_time() - track_start, PerfStats::TIME);
-        Stats.sample("total all", CVD::timer.get_time() - start, PerfStats::TIME);
+        Stats.sample("total track", timer.get_time() - track_start, PerfStats::TIME);
+        Stats.sample("total all", timer.get_time() - start, PerfStats::TIME);
 #if 0
        while(events.key_up.empty()){
           window.get_events(events); 
