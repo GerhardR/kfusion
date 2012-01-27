@@ -2,3 +2,4 @@ _darcs
 *.o
 kinect
 test
+build*

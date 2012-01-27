@@ -10,6 +10,7 @@
 
 #include <cvd/timer.h>
 
+
 struct PerfStats {
     enum Type { TIME, COUNT, PERCENTAGE };
     struct Stats {
@@ -24,17 +25,19 @@ struct PerfStats {
     std::map<std::string, Stats> stats;
     double last;
 
+	CVD::cvd_timer timer;
+
     void sample(const std::string& key, double t, Type type = COUNT) {
         Stats& s = stats[key];
         s.data.push_back(t);
         s.type = type;
     }
     double start(void){
-        last = CVD::timer.get_time();
+        last = timer.get_time();
         return last;
     }
     double sample(const std::string &key){
-        const double now = CVD::timer.get_time();
+        const double now = timer.get_time();
         sample(key, now - last, TIME);
         last = now;
         return now;
