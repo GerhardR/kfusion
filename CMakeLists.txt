@@ -12,10 +12,16 @@ include_directories(
 	dep/libcvd
 	)
 
+set(ext_libs)
 
 find_package(CUDA)
 find_package(Freenect)
 find_package(OpenGL)
+find_package(X11)
+
+if(X11_FOUND)
+	set(ext_libs ${X11_LIBRARIES})
+endif()
 
 if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
 	
@@ -34,5 +40,8 @@ if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
 		kinect.cpp
 		perfstats.h
 		)
+		
+	target_link_libraries(kfusion_test 
+		cvd ${ext_libs} ${FREENECT_LIBRARIES} ${OPENGL_LIBRARIES})
 endif()
 	
