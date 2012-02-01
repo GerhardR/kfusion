@@ -1,3 +1,1 @@
-[submodule "dep/libcvd"]
-	path = dep/libcvd
-	url = git://git.savannah.nongnu.org/libcvd.git
+
