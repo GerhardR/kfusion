@@ -35,9 +35,11 @@ if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
 		cutil_math.h
 		)
 	
-	CUDA_ADD_LIBRARY(kfusion SHARED
+	cuda_add_library(kfusion SHARED
 		${kfusion_cuda_srcs}
 		perfstats.h
+		OPTIONS
+		-O3
 		)
 		
 	target_link_libraries(kfusion 
