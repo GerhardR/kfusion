@@ -1,4 +1,4 @@
 
 [submodule "dep/libcvd"]
 	path = dep/libcvd
-	url = git@github.com:seichter/libcvd.git
+	url = git://github.com/seichter/libcvd.git
