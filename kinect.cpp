@@ -121,7 +121,7 @@ int main(int argc, char ** argv) {
     CVD::GLWindow::EventSummary events;
     glDisable(GL_DEPTH_TEST);
 
-    CVD::Image<CVD::Rgb<CVD::byte> > lightScene(imageSize), depth(imageSize), lightWide(CVD::ImageRef(imageSize.x * 2, imageSize.y));
+    CVD::Image<CVD::Rgb<CVD::byte> > lightScene(imageSize), depth(imageSize), lightModel(imageSize);
     
     const float3 light = make_float3(1.0, -2, 1.0);
     const float3 ambient = make_float3(0.1, 0.1, 0.1);
@@ -158,9 +158,7 @@ int main(int argc, char ** argv) {
             reset = false;
         }
 
-        renderVolumeLight(lightWide.data(), make_uint2(lightWide.size().x, lightWide.size().y), kfusion.integration, kfusion.pose * getInverseCameraMatrix(renderCamera), 0.4f, 5.0f, kfusion.configuration.mu * 0.7, light, ambient );
-        Stats.sample("renderview");
-
+        renderLight( lightModel.data(), kfusion.vertex, kfusion.normal, light, ambient);
         renderLight( lightScene.data(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
         renderTrackResult( depth.data(), kfusion.reduction );
         Stats.sample("render");
@@ -170,7 +168,7 @@ int main(int argc, char ** argv) {
         glRasterPos2i(imageSize.x, imageSize.y * 0);
         glDrawPixels(depth);
         glRasterPos2i(0,imageSize.y * 1);
-        glDrawPixels(lightWide);
+        glDrawPixels(lightModel);
         Stats.sample("draw");
         
         window.swap_buffers();
