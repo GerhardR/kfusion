@@ -40,6 +40,7 @@ Todo
 
 Done
 -----
+- 2D grid for volume integration is 40% faster
 - fixed a difference in computing normals in raycasting and from kinect input... maybe influences tracking ?
 - added a combined tracking & reduce implementation that saves a bit of time
 - make configuration more automatic, compute dependent variables, scales for tracking
