@@ -187,11 +187,11 @@ inline __device__ uint2 thr2pos2(){
 #endif
 }
 
-inline __device__ float2 toFloat( const short2 data ){
+inline __device__ float2 toFloat( const short2 & data ){
     return make_float2(data.x / 32766.0f, data.y);
 }
 
-inline __device__ short2 fromFloat( const float2 data ){
+inline __device__ short2 fromFloat( const float2 & data ){
     return make_short2(data.x * 32766.0f, data.y);
 }
 
@@ -218,7 +218,7 @@ struct Volume {
         return operator[](pos).y;
     }
 
-    __device__ void set(const uint3 & pos, const float2 d ){
+    __device__ void set(const uint3 & pos, const float2 & d ){
         data[pos.x + pos.y * size.x + pos.z * size.x * size.y] = fromFloat(d);
     }
 
@@ -226,8 +226,7 @@ struct Volume {
         set(thr2pos3(), d);
     }
 
-    __device__ float3 pos() const {
-        const uint3 p = thr2pos3();
+    __device__ float3 pos( const uint3 p = thr2pos3() ) const {
         return make_float3((p.x + 0.5f) * dim.x / size.x, (p.y + 0.5f) * dim.y / size.y, (p.z + 0.5f) * dim.z / size.z);
     }
 
@@ -384,9 +383,9 @@ struct KFusion {
     // high level API to run a simple tracking - reconstruction loop
     void Reset(); // removes all reconstruction information
 
-    void setKinectDepth( void * ); // passes in raw 11-bit kinect data
-    void setDeviceDepth( void * ); // passes in a rendered depth buffer in device memory
-    void setHostDepth( void * ); // passes in a rendered depth buffer in host memory
+    void setKinectDepth( ushort * ); // passes in raw 11-bit kinect data as an array of ushort
+    void setDeviceDepth( float * ); // passes in a metric depth buffer as float array residing in device memory 
+    void setHostDepth( float * ); // passes in  a metric depth buffer as float array residing in host memory
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose

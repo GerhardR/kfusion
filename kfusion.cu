@@ -91,24 +91,28 @@ __forceinline__ __device__ float sq( const float x ){
 }
 
 __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 invTrack, const Matrix4 K, const float mu, const float maxweight){
-    const float3 pos = invTrack * vol.pos();
-    if(pos.z < 0.0001f) // some near plane constraint
-        return;
-
-    const float3 cameraX = K * pos;
-    const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
-    if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
-        return;
-    const uint2 px = make_uint2(pixel.x, pixel.y);
-    if(depth[px] == 0)
-        return;
-    const float diff = (depth[px] - cameraX.z) * sqrt(1+sq(pos.x/pos.z) + sq(pos.y/pos.z));
-    if(diff > -mu){
-        const float sdf = fminf(1.f, diff/mu);
-        float2 data = vol.el();
-        data.x = clamp((data.y*data.x + sdf)/(data.y + 1), -1.f, 1.f);
-        data.y = fminf(data.y+1, maxweight);
-        vol.set(data);
+    uint3 pix = make_uint3(thr2pos2());
+    float3 pos = invTrack * vol.pos(pix);
+    const float3 delta = rotate(invTrack, make_float3(0,0, vol.dim.z / vol.size.z));
+    for(pix.z = 0; pix.z < vol.size.z; ++pix.z, pos += delta){
+        if(pos.z < 0.0001f) // some near plane constraint
+            continue;
+    
+        const float3 cameraX = K * pos;
+        const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
+        if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
+            continue;
+        const uint2 px = make_uint2(pixel.x, pixel.y);
+        if(depth[px] == 0)
+            continue;
+        const float diff = (depth[px] - cameraX.z) * sqrt(1+sq(pos.x/pos.z) + sq(pos.y/pos.z));
+        if(diff > -mu){
+            const float sdf = fminf(1.f, diff/mu);
+            float2 data = vol[pix];
+            data.x = clamp((data.y*data.x + sdf)/(data.y + 1), -1.f, 1.f);
+            data.y = fminf(data.y+1, maxweight);
+            vol.set(pix, data);
+        }
     }
 }
 
@@ -486,7 +490,7 @@ void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
     invPose = invP;
 }
 
-void KFusion::setKinectDepth( void * ptr ){
+void KFusion::setKinectDepth( ushort * ptr ){
     cudaMemcpy(rawKinectDepth.data, ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
@@ -494,11 +498,11 @@ void KFusion::setKinectDepth( void * ptr ){
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
 }
 
-void KFusion::setDeviceDepth( void * ptr ){
+void KFusion::setDeviceDepth( float * ptr ){
     cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyDeviceToDevice);
 }
 
-void KFusion::setHostDepth( void * ptr ){
+void KFusion::setHostDepth( float * ptr ){
     cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyHostToDevice);
 }
 
@@ -592,9 +596,8 @@ bool KFusion::Track() {
 }
 
 void KFusion::Integrate() {
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, configuration.volumeSize);
-    integrate<<<grid,block>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    dim3 grid(32,16);
+    integrate<<<divup(dim3(integration.size.x, integration.size.y), grid), grid>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
 }
 
 int printCUDAError() {
