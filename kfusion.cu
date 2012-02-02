@@ -524,7 +524,7 @@ void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
     invPose = invP;
 }
 
-void KFusion::setKinectDepth( void * ptr ){
+void KFusion::setKinectDepth( ushort * ptr ){
     cudaMemcpy(rawKinectDepth.data, ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
@@ -532,11 +532,11 @@ void KFusion::setKinectDepth( void * ptr ){
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
 }
 
-void KFusion::setDeviceDepth( void * ptr ){
+void KFusion::setDeviceDepth( float * ptr ){
     cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyDeviceToDevice);
 }
 
-void KFusion::setHostDepth( void * ptr ){
+void KFusion::setHostDepth( float * ptr ){
     cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyHostToDevice);
 }
 

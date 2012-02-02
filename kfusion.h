@@ -383,9 +383,9 @@ struct KFusion {
     // high level API to run a simple tracking - reconstruction loop
     void Reset(); // removes all reconstruction information
 
-    void setKinectDepth( void * ); // passes in raw 11-bit kinect data
-    void setDeviceDepth( void * ); // passes in a rendered depth buffer in device memory
-    void setHostDepth( void * ); // passes in a rendered depth buffer in host memory
+    void setKinectDepth( ushort * ); // passes in raw 11-bit kinect data as an array of ushort
+    void setDeviceDepth( float * ); // passes in a metric depth buffer as float array residing in device memory 
+    void setHostDepth( float * ); // passes in  a metric depth buffer as float array residing in host memory
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose
