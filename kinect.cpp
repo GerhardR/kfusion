@@ -111,6 +111,7 @@ int main(int argc, char ** argv) {
     
     KFusion kfusion;
     kfusion.Init(config);
+    
     if(printCUDAError()){
         kfusion.Clear();
         cudaDeviceReset();
@@ -129,7 +130,7 @@ int main(int argc, char ** argv) {
     const float3 ambient = make_float3(0.1, 0.1, 0.1);
     const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
 
-    SE3<float> initPose(makeVector(size/2, size/2, 0, 0, 0, 0));
+    SE3<float> initPose(makeVector(size/2, size/2, -0.5, 0, 0, 0));
 
     kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
 
@@ -138,6 +139,7 @@ int main(int argc, char ** argv) {
 
     bool integrate = true;
     bool reset = true;
+    bool handTrack = false;
 
     int counter = 0;
     while(!events.should_quit()){
@@ -154,10 +156,23 @@ int main(int argc, char ** argv) {
         integrate = kfusion.Track();
         Stats.sample("track");
         
-        if(integrate || reset ){
-            kfusion.Integrate();
-            Stats.sample("integrate");
-            reset = false;
+        if(!handTrack){
+            if(integrate || reset){
+                kfusion.Integrate();
+                Stats.sample("integrate");
+                reset = false;
+            }
+        } else {
+            kfusion.FilterRawDepth();
+            kfusion.IntegrateHand();
+            Stats.sample("hand integrate");
+        }
+
+        if(handTrack){
+            renderVolumeLight(lightScene.data(), config.renderSize(), kfusion.hand, kfusion.pose * getInverseCameraMatrix(config.camera), 0.4f, 5.0f, kfusion.configuration.mu * 0.7, light, ambient );
+            glRasterPos2i(imageSize.x, imageSize.y * 1);
+            glDrawPixels(lightScene);
+            Stats.sample("hand render");
         }
 
         renderLight( lightModel.data(), kfusion.vertex, kfusion.normal, light, ambient);
@@ -187,12 +202,16 @@ int main(int argc, char ** argv) {
             kfusion.Reset();
             kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
             reset = true;
+            handTrack = false;
         }        
         if(events.key_up.count('v')){
             CVD::Image<float> vol = getVolume(kfusion.integration);
             ostringstream sout;
             sout << "volume_" << setw(3) << setfill('0') << counter << ".jpg";
             img_save(vol, sout.str());
+        }
+        if(events.key_up.count('h')){
+            handTrack = !handTrack;
         }
         const double endProcessing = Stats.sample("events");
         
