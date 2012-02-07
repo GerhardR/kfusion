@@ -20,23 +20,23 @@ __global__ void initVolume( Volume volume, const float2 val ){
 __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
     const uint2 pos = thr2pos2();
 
-    float3 origin = view.get_translation();
-    float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
+    const float3 origin = view.get_translation();
+    const float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
 
     // intersect ray with a box
     // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
     // compute intersection of ray with all six bbox planes
-    float3 invR = make_float3(1.0f) / direction;
-    float3 tbot = -invR * origin;
-    float3 ttop = invR * (volume.dim - origin);
+    const float3 invR = make_float3(1.0f) / direction;
+    const float3 tbot = -1 * invR * origin;
+    const float3 ttop = invR * (volume.dim - origin);
 
     // re-order intersections to find smallest and largest on each axis
-    float3 tmin = fminf(ttop, tbot);
-    float3 tmax = fmaxf(ttop, tbot);
+    const float3 tmin = fminf(ttop, tbot);
+    const float3 tmax = fmaxf(ttop, tbot);
 
     // find the largest tmin and the smallest tmax
-    float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
-    float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
+    const float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
+    const float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
 
     // check against near and far plane
     const float tnear = fmaxf(largest_tmin, near);
