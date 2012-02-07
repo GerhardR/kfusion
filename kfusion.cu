@@ -44,32 +44,23 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        float3 test = origin + direction * tnear;
-        if( volume.interp(test) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear; d < tfar; d += largestep, test += direction * largestep){
-                if(volume.interp(test) < 0){          // got it, now bisect the interval
+        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
+            for(float d = tnear + largestep; d < tfar; d += largestep){
+                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
                     float dp = d - largestep;
                     float dm = d;
-                    float3 testp = test - direction * largestep;
-                    float3 testm = test;
-                    
-                    while(fabsf(dp - dm) > step/10){    // bisection until we are really small
-                        test = (testm + testp) * 0.5f;
-                        const float decide = volume.interp(test);
+
+                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
                         const float middle = (dp + dm) * 0.5f;
-                        if(decide >= 0){
-                            dp = middle;
-                            testp = test;
-                        } 
-                        if(decide <= 0){
-                            dm = middle;
-                            testm = test;
-                        }
+                        const float decide = volume.interp(origin + direction * middle);
+                        dp = (decide >= 0) ? middle : dp;
+                        dm = (decide <= 0) ? middle : dm;
                     }
-                    
-                    test = (testm + testp) * 0.5f;
+
+                    d = (dm + dp) * 0.5f;
+                    const float3 test = origin + direction * d;
                     pos3D[pos] = test;
-                    depth[pos] = (dp + dm) * 0.5f;
+                    depth[pos] = d;
                     float3 surfNorm = volume.grad(test);
                     if(length(surfNorm) == 0){
                         normal[pos].x = INVALID;
