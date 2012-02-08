@@ -20,23 +20,23 @@ __global__ void initVolume( Volume volume, const float2 val ){
 __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
     const uint2 pos = thr2pos2();
 
-    float3 origin = view.get_translation();
-    float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
+    const float3 origin = view.get_translation();
+    const float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
 
     // intersect ray with a box
     // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
     // compute intersection of ray with all six bbox planes
-    float3 invR = make_float3(1.0f) / direction;
-    float3 tbot = -invR * origin;
-    float3 ttop = invR * (volume.dim - origin);
+    const float3 invR = make_float3(1.0f) / direction;
+    const float3 tbot = -1 * invR * origin;
+    const float3 ttop = invR * (volume.dim - origin);
 
     // re-order intersections to find smallest and largest on each axis
-    float3 tmin = fminf(ttop, tbot);
-    float3 tmax = fmaxf(ttop, tbot);
+    const float3 tmin = fminf(ttop, tbot);
+    const float3 tmax = fmaxf(ttop, tbot);
 
     // find the largest tmin and the smallest tmax
-    float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
-    float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
+    const float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
+    const float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
 
     // check against near and far plane
     const float tnear = fmaxf(largest_tmin, near);
@@ -44,32 +44,23 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        float3 test = origin + direction * tnear;
-        if( volume.interp(test) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear; d < tfar; d += largestep, test += direction * largestep){
-                if(volume.interp(test) < 0){          // got it, now bisect the interval
+        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
+            for(float d = tnear + largestep; d < tfar; d += largestep){
+                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
                     float dp = d - largestep;
                     float dm = d;
-                    float3 testp = test - direction * largestep;
-                    float3 testm = test;
-                    
-                    while(fabsf(dp - dm) > step/10){    // bisection until we are really small
-                        test = (testm + testp) * 0.5f;
-                        const float decide = volume.interp(test);
+
+                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
                         const float middle = (dp + dm) * 0.5f;
-                        if(decide >= 0){
-                            dp = middle;
-                            testp = test;
-                        } 
-                        if(decide <= 0){
-                            dm = middle;
-                            testm = test;
-                        }
+                        const float decide = volume.interp(origin + direction * middle);
+                        dp = (decide >= 0) ? middle : dp;
+                        dm = (decide <= 0) ? middle : dm;
                     }
-                    
-                    test = (testm + testp) * 0.5f;
+
+                    d = (dm + dp) * 0.5f;
+                    const float3 test = origin + direction * d;
                     pos3D[pos] = test;
-                    depth[pos] = (dp + dm) * 0.5f;
+                    depth[pos] = d;
                     float3 surfNorm = volume.grad(test);
                     if(length(surfNorm) == 0){
                         normal[pos].x = INVALID;

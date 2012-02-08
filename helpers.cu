@@ -152,31 +152,21 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        float3 test = origin + direction * tnear;
-        if( volume.interp(test) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear; d < tfar; d += largestep, test += direction * largestep){
-                if(volume.interp(test) < 0){          // got it, now bisect the interval
+        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
+            for(float d = tnear + largestep; d < tfar; d += largestep ){
+                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
                     float dp = d - largestep;
                     float dm = d;
-                    float3 testp = test - direction * largestep;
-                    float3 testm = test;
-                    
-                    while(fabsf(dp - dm) > step/4){    // bisection until we are really small
-                        test = (testm + testp) * 0.5f;
-                        const float decide = volume.interp(test);
+
+                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
                         const float middle = (dp + dm) * 0.5f;
-                        if(decide >= 0){
-                            dp = middle;
-                            testp = test;
-                        } 
-                        if(decide <= 0){
-                            dm = middle;
-                            testm = test;
-                        }
+                        const float decide = volume.interp(origin + direction * middle);
+                        dp = (decide >= 0) ? middle : dp;
+                        dm = (decide <= 0) ? middle : dm;
                     }
-                    
-                    test = (testm + testp) * 0.5f;
-                    float3 surfNorm = volume.grad(test);
+
+                    const float3 test = origin + direction * ((dm + dp) * 0.5f);
+                    const float3 surfNorm = volume.grad(test);
                     if(length(surfNorm) > 0){
                         const float3 diff = normalize(light - test);
                         const float dir = fmaxf(dot(normalize(surfNorm), diff), 0.f);
