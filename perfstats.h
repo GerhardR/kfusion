@@ -57,13 +57,13 @@ inline void PerfStats::print(std::ostream& out) const {
         out << std::string("\t\t\t").substr(0, 3 - ((it->first.size()+1) >> 3));
         switch(it->second.type){
         case TIME: {
-            out << it->second.average()*1000.0 << "ms (max = " << it->second.max()*1000 << " ms)\n";
+            out << it->second.average()*1000.0 << "\t(max = " << it->second.max()*1000 << ")\n";
         } break;
         case COUNT: {
-            out << it->second.average() << " (max = " << it->second.max() << " )\n";
+            out << it->second.average() << "\t(max = " << it->second.max() << " )\n";
         } break;
         case PERCENTAGE: {
-            out << it->second.average()*100.0 << "% (max = " << it->second.max()*100 << " %)\n";
+            out << it->second.average()*100.0 << "%\t(max = " << it->second.max()*100 << " %)\n";
         } break;
         }
     }
