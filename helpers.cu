@@ -7,34 +7,37 @@ using namespace std;
 PerfStats Stats;
 
 __global__ void setSphere( Volume volume, const float3 center, const float radius, const float val ){
-    const float d = length(volume.pos() - center);
-    if(d < radius)
-        volume.set(make_float2(val, 0.0f));
+    uint3 pos = make_uint3(thr2pos2());
+    for(pos.z = 0; pos.z < volume.size.z; ++pos.z) {
+        const float d = length(volume.pos(pos) - center);
+        if(d < radius)
+            volume.set(pos, make_float2(val, 0.0f));
+    }
 }
 
 __global__ void setBox( Volume volume, const float3 min_corner, const float3 max_corner, const float val ){
-    const float3 p = volume.pos();
-    if(min_corner.x < p.x && min_corner.y < p.y && min_corner.z < p.z && 
-       p.x < max_corner.x && p.y < max_corner.y && p.z < max_corner.z )
-        volume.set(make_float2(val, 0.0f));
+    uint3 pos = make_uint3(thr2pos2());
+    for(pos.z = 0; pos.z < volume.size.z; ++pos.z) {
+        const float3 p = volume.pos(pos);
+        if(min_corner.x < p.x && min_corner.y < p.y && min_corner.z < p.z && 
+           p.x < max_corner.x && p.y < max_corner.y && p.z < max_corner.z )
+            volume.set(pos, make_float2(val, 0.0f));
+    }
 }
 
 void initVolumeWrap( Volume volume, const float val ){
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, volume.size);
-    initVolume<<<grid, block>>>(volume, make_float2(val, 0.0f));
+    dim3 block(32,16);
+    initVolume<<<divup(dim3(volume.size.x, volume.size.y), block), block>>>(volume, make_float2(val, 0.0f));
 }
 
 void setBoxWrap(Volume volume, const float3 min_corner, const float3 max_corner, const float val ){
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, volume.size);
-    setBox<<<grid, block>>>(volume, min_corner, max_corner, val);
+    dim3 block(32,16);
+    setBox<<<divup(dim3(volume.size.x, volume.size.y), block), block>>>(volume, min_corner, max_corner, val);
 }
 
 void setSphereWrap(Volume volume, const float3 center, const float radius, const float val ){
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, volume.size);
-    setSphere<<<grid, block>>>(volume, center, radius, val);
+    dim3 block(32,16);
+    setSphere<<<divup(dim3(volume.size.x, volume.size.y), block), block>>>(volume, center, radius, val);
 }
 
 __global__ void renderNormals( Image<uchar3> out, const Image<float3> in ){

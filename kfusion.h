@@ -7,11 +7,6 @@
 #include <vector_functions.h>
 #include "cutil_math.h"
 
-// undefine this on 2.x devices 
-// 1.x devices don't have 3D grids, therefore we compute 3D mapping to 2D here, 
-// based on the idea that slices are layed out in x direction as blocks
-#define USE_PLANAR_3D 1
-
 inline int divup(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 inline dim3 divup( uint2 a, dim3 b) { return dim3(divup(a.x, b.x), divup(a.y, b.y)); }
 inline dim3 divup( dim3 a, dim3 b) { return dim3(divup(a.x, b.x), divup(a.y, b.y), divup(a.z, b.z)); }
@@ -138,46 +133,6 @@ inline Matrix4 getInverseCameraMatrix( const float4 & k ){
     return invK;
 } 
 
-inline void computeVolumeConfiguration( dim3 & grid, dim3 & block, const uint3 size ){
-#ifdef USE_PLANAR_3D
-    if(size.z <= 64){
-        block = dim3(2,2,size.z);
-        grid = dim3(size.x/2, size.y/2, 1);
-    } else {
-        block = dim3(8,8,8);
-        grid = dim3(size.x/8 * size.z/8, size.y/8, 1);
-    }
-#else
-    block = dim3(8,8,8);
-    grid = dim3(divup(size.x,8), divup(size.y,8), divup(size.z,8));
-#endif
-}
-
-inline __device__ uint3 thr2pos3(){
-#ifdef __CUDACC__
-#ifdef USE_PLANAR_3D     // 1.x devices don't have 3D grids, therefore we
-                         // compute 3D mapping to 2D here, based on the idea 
-                         // that slices are layed out in x direction as blocks
-
-    const uint size = __umul24(gridDim.y, blockDim.y); // this is what we are looking for
-    const uint total_x = __umul24(blockDim.x, blockIdx.x) + threadIdx.x;
-    const uint x = total_x % size;
-    const uint y = __umul24(blockDim.y, blockIdx.y) + threadIdx.y;
-    
-    const uint z_layer = total_x / size;
-    const uint z = __umul24(z_layer, __umul24(gridDim.z, blockDim.z)) + __umul24(blockDim.z, blockIdx.z) + threadIdx.z;
-    
-    return make_uint3(x, y, z);
-#else
-    return make_uint3( __umul24(blockDim.x, blockIdx.x) + threadIdx.x, 
-                       __umul24(blockDim.y, blockIdx.y) + threadIdx.y, 
-                       __umul24(blockDim.z, blockIdx.z) + threadIdx.z);
-#endif
-#else
-    return make_uint3(0);
-#endif
-}
-
 inline __device__ uint2 thr2pos2(){
 #ifdef __CUDACC__
     return make_uint2( __umul24(blockDim.x, blockIdx.x) + threadIdx.x, 
@@ -202,10 +157,6 @@ struct Volume {
     
     Volume() { size = make_uint3(0); dim = make_float3(1); data = NULL; }
 
-    __device__ float2 el() const {
-        return operator[](thr2pos3());
-    }
-
     __device__ float2 operator[]( const uint3 & pos ) const {
         return toFloat(data[pos.x + pos.y * size.x + pos.z * size.x * size.y]);
     }
@@ -222,11 +173,7 @@ struct Volume {
         data[pos.x + pos.y * size.x + pos.z * size.x * size.y] = fromFloat(d);
     }
 
-    __device__ void set(const float2 d){
-        set(thr2pos3(), d);
-    }
-
-    __device__ float3 pos( const uint3 p = thr2pos3() ) const {
+    __device__ float3 pos( const uint3 & p ) const {
         return make_float3((p.x + 0.5f) * dim.x / size.x, (p.y + 0.5f) * dim.y / size.y, (p.z + 0.5f) * dim.z / size.z);
     }
 

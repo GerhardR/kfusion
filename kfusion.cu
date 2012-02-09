@@ -14,7 +14,9 @@ static const float INVALID = -2;   // this is used to mark invalid entries in no
 using namespace std;
 
 __global__ void initVolume( Volume volume, const float2 val ){
-    volume.set(val);
+    uint3 pos = make_uint3(thr2pos2());
+    for(pos.z = 0; pos.z < volume.size.z; ++pos.z)
+        volume.set(pos, val);
 }
 
 __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
@@ -451,9 +453,8 @@ void KFusion::Init( const KFusionConfig & config ) {
 }
 
 void KFusion::Reset(){
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, configuration.volumeSize);
-    initVolume<<<grid, block>>>(integration, make_float2(1.0f, 0.0f));
+    dim3 block(32,16);
+    initVolume<<<divup(dim3(integration.size.x, integration.size.y), block), block>>>(integration, make_float2(1.0f, 0.0f));
  }
 
 void KFusion::Clear(){
