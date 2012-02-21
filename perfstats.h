@@ -7,8 +7,7 @@
 #include <numeric>
 #include <string>
 #include <vector>
-
-#include <cvd/timer.h>
+#include <ctime>
 
 struct PerfStats {
     enum Type { TIME, COUNT, PERCENTAGE };
@@ -24,17 +23,21 @@ struct PerfStats {
     std::map<std::string, Stats> stats;
     double last;
 
+    static double get_time() {
+        return double(std::clock())/CLOCKS_PER_SEC;
+    }
+
     void sample(const std::string& key, double t, Type type = COUNT) {
         Stats& s = stats[key];
         s.data.push_back(t);
         s.type = type;
     }
     double start(void){
-        last = CVD::timer.get_time();
+        last = get_time();
         return last;
     }
     double sample(const std::string &key){
-        const double now = CVD::timer.get_time();
+        const double now = get_time();
         sample(key, now - last, TIME);
         last = now;
         return now;

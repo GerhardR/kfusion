@@ -130,7 +130,7 @@ int main(int argc, char ** argv) {
             cudaDeviceSynchronize();
             Stats.sample("integration");
         }
-        Stats.sample("total track", CVD::timer.get_time() - track_start, PerfStats::TIME);
+        Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
 
         raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(config.camera), config.nearPlane, config.farPlane, config.stepSize(), 0.5 * config.mu );
         cudaDeviceSynchronize();
@@ -160,7 +160,7 @@ int main(int argc, char ** argv) {
             cout << kfusion.pose << endl;
         }
         Stats.sample("events");
-        Stats.sample("total all", CVD::timer.get_time() - start, PerfStats::TIME);
+        Stats.sample("total all", Stats.get_time() - start, PerfStats::TIME);
 
         if(counter % 30 == 0){
             Stats.print();
