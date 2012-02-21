@@ -427,28 +427,30 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
 
 void KFusion::Init( const KFusionConfig & config ) {
     configuration = config;
+    
+    cudaSetDeviceFlags(cudaDeviceMapHost);
 
     integration.init(config.volumeSize, config.volumeDimensions);
 
-    reduction.init(config.renderSize());
-    vertex.init(config.renderSize());
-    normal.init(config.renderSize());
-    depth.init(config.renderSize());
-    rawKinectDepth.init(make_uint2(640,480));
-    rawDepth.init(config.renderSize());
+    reduction.alloc(config.renderSize());
+    vertex.alloc(config.renderSize());
+    normal.alloc(config.renderSize());
+    depth.alloc(config.renderSize());
+    rawKinectDepth.alloc(make_uint2(640,480));
+    rawDepth.alloc(config.renderSize());
 
     for(int i = 0; i < 3; ++i){
-        inputDepth[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputVertex[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputNormal[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
+        inputDepth[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
+        inputVertex[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
+        inputNormal[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
     }
 
-    gaussian.init(make_uint2(config.radius * 2 + 1, 1));
-    output.init(make_uint2(32,8));
+    gaussian.alloc(make_uint2(config.radius * 2 + 1, 1));
+    output.alloc(make_uint2(32,8));
 
     //generate gaussian array
     generate_gaussian<<< 1, gaussian.size.x>>>(gaussian, config.delta, config.radius);
-    
+
     Reset();
 }
 
@@ -459,22 +461,6 @@ void KFusion::Reset(){
 
 void KFusion::Clear(){
     integration.release();
-
-    reduction.release();
-    vertex.release();
-    normal.release();
-    depth.release();
-    rawKinectDepth.release();
-    rawDepth.release();
-
-    for(int i = 0; i < 3; ++i){
-        inputDepth[i].release();
-        inputVertex[i].release();
-        inputNormal[i].release();
-    }
-
-    gaussian.release();
-    output.release();
 }
 
 void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
@@ -483,19 +469,18 @@ void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
 }
 
 void KFusion::setKinectDepth( ushort * ptr ){
-    cudaMemcpy(rawKinectDepth.data, ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
+    cudaMemcpy(rawKinectDepth.data(), ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
     else 
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
 }
 
-void KFusion::setDeviceDepth( float * ptr ){
-    cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyDeviceToDevice);
-}
-
-void KFusion::setHostDepth( float * ptr ){
-    cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyHostToDevice);
+void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
+    if(configuration.fullFrame)
+        raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
+    else 
+        raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
 }
 
 inline Matrix4 toMatrix4( const TooN::SE3<> & p){
@@ -559,16 +544,16 @@ bool KFusion::Track() {
     Matrix4 oldPose = pose;
     Matrix4 oldInvPose = invPose;
     
-    TooN::Matrix<8, 32, float> values = TooN::Zeros;
+    TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = 2; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){
             if(configuration.combinedTrackAndReduce){
-                trackAndReduce<<<8, 112>>>( output.data, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
+                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
             } else {
                 track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold);
-                reduce<<<8, 112>>>( output.data, reduction, inputVertex[level].size );             // compute the linear system to solve
+                reduce<<<8, 112>>>( output.getDeviceImage().data(), reduction, inputVertex[level].size );             // compute the linear system to solve
             }
-            output.get(values.get_data_ptr());
+            cudaDeviceSynchronize(); // important due to async nature of kernel call
             for(int j = 1; j < 8; ++j)
                 values[0] += values[j];
             TooN::Vector<6> x = solve(values[0].slice<1,27>());
@@ -588,8 +573,8 @@ bool KFusion::Track() {
 }
 
 void KFusion::Integrate() {
-    dim3 grid(32,16);
-    integrate<<<divup(dim3(integration.size.x, integration.size.y), grid), grid>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    dim3 block(32,16);
+    integrate<<<divup(dim3(integration.size.x, integration.size.y), block), block>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
 }
 
 int printCUDAError() {

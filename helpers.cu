@@ -50,37 +50,25 @@ __global__ void renderNormals( Image<uchar3> out, const Image<float3> in ){
     }
 }
 
-void renderNormalMap( void * ptr, const Image<float3> & normal ){
-    static Image<uchar3> renderOutput;
-    if(renderOutput.size.x != normal.size.x || renderOutput.size.y != normal.size.y){
-        renderOutput.release();
-        renderOutput.init(normal.size);
-    }
+void renderNormalMap( Image<uchar3> out, const Image<float3> & normal ){
     dim3 block(20,20);
-    renderNormals<<<divup(normal.size, block), block>>>( renderOutput, normal );
-    renderOutput.get(ptr);
+    renderNormals<<<divup(normal.size, block), block>>>( out, normal );
 }
 
-__global__ void renderLight( Image<uchar3> out, const Image<float3> vertex, const Image<float3> normal, const float3 light, const float3 ambient ){
-    if(length(normal.el()) < 0.00001f)
-        out.el() = make_uchar3(0, 0, 0);
+__global__ void renderLightKernel( Image<uchar4> out, const Image<float3> vertex, const Image<float3> normal, const float3 light, const float3 ambient ){
+    if(normal.el().z == -2)
+        out.el() = make_uchar4(0,0,0,0);
     else {
         const float3 diff = normalize(light - vertex.el());
         const float dir = fmaxf(dot(normal.el(), diff), 0.f);
         const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
-        out.el() = make_uchar3(col.x, col.y, col.z);
+        out.el() = make_uchar4(col.x, col.y, col.z, 0);
     }
 }
 
-void renderLight( void * ptr, const Image<float3> & vertex, const Image<float3> & normal, const float3 light, const float3 ambient ){
-    static Image<uchar3> renderOutput;
-    if(renderOutput.size.x != normal.size.x || renderOutput.size.y != normal.size.y){
-        renderOutput.release();
-        renderOutput.init(normal.size);
-    }
-    dim3 block(20,20);
-    renderLight<<<divup(normal.size, block), block>>>( renderOutput, vertex, normal, light, ambient );
-    renderOutput.get(ptr);
+void renderLight( Image<uchar4> out, const Image<float3> & vertex, const Image<float3> & normal, const float3 light, const float3 ambient ){
+    dim3 block(32,16);
+    renderLightKernel<<<divup(normal.size, block), block>>>( out, vertex, normal, light, ambient );
 }
 
 __global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const float near, const float far){
@@ -88,44 +76,32 @@ __global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const 
     out.el() = make_uchar3(d * 255, d * 255, d * 255);
 }
 
-void renderDepthMap( void * ptr, const Image<float> & depth, const float nearPlane, const float farPlane ){
-    static Image<uchar3> renderOutput;
-    if(renderOutput.size.x != depth.size.x || renderOutput.size.y != depth.size.y){
-        renderOutput.release();
-        renderOutput.init(depth.size);
-    }
+void renderDepthMap( Image<uchar3> out, const Image<float> & depth, const float nearPlane, const float farPlane ){
     dim3 block(20,20);
-    renderDepth<<<divup(depth.size, block), block>>>( renderOutput, depth, nearPlane, farPlane );
-    renderOutput.get(ptr);
+    renderDepth<<<divup(depth.size, block), block>>>( out, depth, nearPlane, farPlane );
 }
 
-__global__ void renderTrack( Image<uchar3> out, const Image<TrackData> data ){
+__global__ void renderTrack( Image<uchar4> out, const Image<TrackData> data ){
     const uint2 pos = thr2pos2();
     switch(data[pos].result){
-    case 1: out[pos] = make_uchar3(128, 128, 128);  // ok
+    case 1: out[pos] = make_uchar4(128, 128, 128,0);  // ok
         break;
-    case -1: out[pos] = make_uchar3(0, 0, 0);      // no input
+    case -1: out[pos] = make_uchar4(0, 0, 0,0);      // no input
         break;
-    case -2: out[pos] = make_uchar3(255,0,0);        // not in image
+    case -2: out[pos] = make_uchar4(255,0,0,0);        // not in image
         break;
-    case -3:  out[pos] = make_uchar3(0,255,0);        // no correspondence
+    case -3:  out[pos] = make_uchar4(0,255,0,0);        // no correspondence
         break;
-    case -4: out[pos] = make_uchar3(0,0,255);        // to far away
+    case -4: out[pos] = make_uchar4(0,0,255,0);        // to far away
         break;
-    case -5: out[pos] = make_uchar3(255,255,0);     // wrong normal
+    case -5: out[pos] = make_uchar4(255,255,0,0);     // wrong normal
         break;
     }
 }
 
-void renderTrackResult( void * ptr, const Image<TrackData> & data ){
-    static Image<uchar3> renderOutput;
-    if(renderOutput.size.x != data.size.x || renderOutput.size.y != data.size.y){
-        renderOutput.release();
-        renderOutput.init(data.size);
-    }
+void renderTrackResult( Image<uchar4> out, const Image<TrackData> & data ){
     dim3 block(20,20);
-    renderTrack<<<divup(data.size, block), block>>>( renderOutput, data );
-    renderOutput.get(ptr);
+    renderTrack<<<divup(out.size, block), block>>>( out, data );
 }
 
 __global__ void raycastLight( Image<uchar3> render, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep, const float3 light, const float3 ambient){
@@ -186,15 +162,9 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
     render.el() = make_uchar3(0,0,0);
 }
 
-void renderVolumeLight( void * ptr, const uint2 size, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
-    static Image<uchar3> renderOutput;
-    if(renderOutput.size.x != size.x || renderOutput.size.y != size.y){
-        renderOutput.release();
-        renderOutput.init(size);
-    }
+void renderVolumeLight( Image<uchar3> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
     dim3 block(16,16);
-    raycastLight<<<divup(renderOutput.size, block), block>>>( renderOutput,  volume, view, nearPlane, farPlane, 0.5f * volume.dim.x/volume.size.x, largestep, light, ambient );
-    renderOutput.get(ptr);
+    raycastLight<<<divup(out.size, block), block>>>( out,  volume, view, nearPlane, farPlane, 0.5f * volume.dim.x/volume.size.x, largestep, light, ambient );
 }
 
 void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){

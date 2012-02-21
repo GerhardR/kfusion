@@ -2,9 +2,12 @@
 #define KFUSION_H
 
 #include <iostream>
+#include <vector>
 
 #include <vector_types.h>
 #include <vector_functions.h>
+#include <cuda_gl_interop.h> // includes cuda_gl_interop.h
+
 #include "cutil_math.h"
 
 inline int divup(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
@@ -58,7 +61,7 @@ struct KFusionConfig {
         iterations[2] = 5;
         
         imageBlock = dim3(20,20);
-        raycastBlock = dim3(16,16);
+        raycastBlock = dim3(32,8);
     }
     
     float stepSize() const {  return 0.5f * min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
@@ -165,10 +168,6 @@ struct Volume {
         return operator[](pos).x;
     }
 
-    __device__ float w(const uint3 & pos) const {
-        return operator[](pos).y;
-    }
-
     __device__ void set(const uint3 & pos, const float2 & d ){
         data[pos.x + pos.y * size.x + pos.z * size.x * size.y] = fromFloat(d);
     }
@@ -180,7 +179,7 @@ struct Volume {
     __device__ float interp( const float3 & pos ) const {
 #if 0   // only for testing without linear interpolation
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) , (pos.y * size.y / dim.y) , (pos.z * size.z / dim.z) );
-        return operator[](make_uint3(clamp(make_int3(scaled_pos), make_int3(0), make_int3(size) - make_int3(1))));
+        return v(make_uint3(clamp(make_int3(scaled_pos), make_int3(0), make_int3(size) - make_int3(1))));
         
 #else
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) - 0.5f, (pos.y * size.y / dim.y) - 0.5f, (pos.z * size.z / dim.z) - 0.5f);
@@ -255,20 +254,140 @@ struct Volume {
         cudaFree(data);
         data = NULL;
     }
-
-    void get( void * target ) const {
-        cudaMemcpy(target, data, size.x * size.y * size.y * sizeof(short2), cudaMemcpyDeviceToHost);
-    }
 };
 
-template <typename T>
-struct Image {
+struct Ref {
+    Ref( void * d = NULL) : data(d) {}
+    void * data;
+};
+
+struct Host {
+    Host() : data(NULL) {}
+    ~Host() { cudaFreeHost( data ); }
+
+    void alloc( uint size ) { cudaHostAlloc( &data, size, cudaHostAllocDefault); }
+    void * data;
+};
+
+struct Device {
+    Device() : data(NULL) {}
+    ~Device() { cudaFree( data ); }
+
+    void alloc( uint size ) { cudaMalloc( &data, size ); }
+    void * data;
+};
+
+struct HostDevice {
+    HostDevice() : data(NULL) {}
+    ~HostDevice() { cudaFreeHost( data ); }
+
+    void alloc( uint size ) { cudaHostAlloc( &data, size,  cudaHostAllocMapped ); }
+    void * getDevice() const {
+        void * devicePtr;
+        cudaHostGetDevicePointer(&devicePtr, data, 0);
+        return devicePtr;
+    }
+    void * data;
+};
+
+struct PBO {
+    PBO() : data(NULL), pbo(NULL), id(0) {}
+    ~PBO() { 
+        cudaGraphicsUnregisterResource(pbo);
+        glDeleteBuffers(1, &id);
+    }
+
+    void alloc( uint size ) {
+        glGenBuffers( 1, &id );
+        glBindBuffer( GL_PIXEL_UNPACK_BUFFER, id );
+        glBufferData( GL_PIXEL_UNPACK_BUFFER, size, NULL, GL_STREAM_DRAW );
+        cudaGraphicsGLRegisterBuffer(&pbo, id, cudaGraphicsMapFlagsWriteDiscard);
+    }
+
+    void map(){
+        size_t num_bytes;
+        cudaGraphicsMapResources(1, &pbo, 0);
+        cudaGraphicsResourceGetMappedPointer(&data, &num_bytes, pbo);
+    }
+
+    void unmap(){
+        cudaGraphicsUnmapResources(1, &pbo, 0);
+        data = NULL;
+    }
+
+    void * data;
+    struct cudaGraphicsResource *pbo;
+    GLuint id;
+};
+
+template <typename OTHER>
+inline void image_copy( Ref & to, const OTHER & from, uint size ){
+    to.data = from.data;
+}
+
+inline void image_copy( Host & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( Host & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToHost);
+}
+
+inline void image_copy( Host & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( Device & to, const Ref & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToDevice);
+}
+
+inline void image_copy( Device & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.getDevice(), size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const PBO & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( HostDevice & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( HostDevice & to, const Device & from, uint size ){
+    cudaMemcpy(to.getDevice(), from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( HostDevice & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( PBO & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+template <typename T, typename Allocator = Ref>
+struct Image : public Allocator {
     typedef T PIXEL_TYPE;
     uint2 size;
-    T * data;
+
+    Image() : Allocator() { size = make_uint2(0);  }
+    Image( const uint2 & s ) { alloc(s); }
     
-    Image() { size = make_uint2(0); data = NULL; }
-    
+    void alloc( const uint2 & s ){
+        if(s.x == size.x && s.y == size.y)
+            return;
+        Allocator::alloc( s.x * s.y * sizeof(T) );
+        size = s;
+    }
+
     __device__ T & el(){
         return operator[](thr2pos2());
     }
@@ -278,25 +397,66 @@ struct Image {
     }
     
     __device__ T & operator[](const uint2 & pos ){
-        return data[pos.x + size.x * pos.y];
+        return static_cast<T *>(Allocator::data)[pos.x + size.x * pos.y];
     }
 
     __device__ const T & operator[](const uint2 & pos ) const {
-        return data[pos.x + size.x * pos.y];
+        return static_cast<const T *>(Allocator::data)[pos.x + size.x * pos.y];
     }
     
-    void init( uint2 s ){
-        size = s;
-        cudaMalloc(&data, size.x * size.y * sizeof(T));
-    }
-    
-    void release(){
-        cudaFree(data);
-        data = NULL;
+    Image<T> getDeviceImage() {
+        return Image<T>(size, Allocator::getDevice());
     }
 
-    void get( void * target ) const {
-        cudaMemcpy(target, data, size.x * size.y * sizeof(T), cudaMemcpyDeviceToHost);
+    operator Image<T>() {
+        return Image<T>(size, Allocator::data);
+    }
+
+    template <typename A1>
+    Image<T, Allocator> & operator=( const Image<T, A1> & other ){
+        image_copy(*this, other, size.x * size.y * sizeof(T));
+        return *this;
+    }
+
+    T * data() {
+        return static_cast<T *>(Allocator::data);
+    }
+
+    const T * data() const {
+        return static_cast<const T *>(Allocator::data);
+    }
+};
+
+template <typename T>
+struct Image<T, Ref> : public Ref {
+    typedef T PIXEL_TYPE;
+    uint2 size;
+
+    Image() { size = make_uint2(0,0); }
+    Image( const uint2 & s, void * d ) : Ref(d), size(s) {}
+
+    __device__ T & el(){
+        return operator[](thr2pos2());
+    }
+    
+    __device__ const T & el() const {
+        return operator[](thr2pos2());
+    }
+    
+    __device__ T & operator[](const uint2 & pos ){
+        return static_cast<T *>(Ref::data)[pos.x + size.x * pos.y];
+    }
+
+    __device__ const T & operator[](const uint2 & pos ) const {
+        return static_cast<const T *>(Ref::data)[pos.x + size.x * pos.y];
+    }
+ 
+    T * data() {
+        return static_cast<T *>(Ref::data);
+    }
+
+    const T * data() const {
+        return static_cast<const T *>(Ref::data);
     }
 };
 
@@ -308,16 +468,16 @@ struct TrackData {
 
 struct KFusion {
     Volume integration;
-    Image<TrackData> reduction;
-    Image<float3> vertex, normal, inputVertex[3], inputNormal[3];
-    Image<float> depth, inputDepth[3];
-    
-    Image<float> rawDepth;
-    Image<ushort> rawKinectDepth;
-    Image<float> output;
-    
-    Image<float> gaussian;
-    
+    Image<TrackData, Device> reduction;
+    Image<float3, Device> vertex, normal, inputVertex[3], inputNormal[3];
+    Image<float, Device> depth, inputDepth[3];
+
+    Image<float, Device> rawDepth;
+    Image<ushort, Device> rawKinectDepth;
+    Image<float, HostDevice> output;
+
+    Image<float, Device> gaussian;
+
     KFusionConfig configuration;
 
     Matrix4 pose, invPose;
@@ -331,8 +491,13 @@ struct KFusion {
     void Reset(); // removes all reconstruction information
 
     void setKinectDepth( ushort * ); // passes in raw 11-bit kinect data as an array of ushort
-    void setDeviceDepth( float * ); // passes in a metric depth buffer as float array residing in device memory 
-    void setHostDepth( float * ); // passes in  a metric depth buffer as float array residing in host memory
+
+    template<typename A>
+    void setDepth( const Image<float, A> & depth  ){ // passes in a metric depth buffer as float array
+        rawDepth = depth;
+    }
+
+    void setKinectDeviceDepth( const Image<uint16_t> & );
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose

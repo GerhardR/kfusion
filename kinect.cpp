@@ -8,12 +8,7 @@
 #include <sstream>
 #include <iomanip>
 
-#include <cvd/image_io.h>
-#include <cvd/colourspaces.h>
 #include <cvd/glwindow.h>
-#include <cvd/gl_helpers.h>
-#include <cvd/vision.h>
-#include <cvd/thread.h>
 #include "perfstats.h"
 
 using namespace std;
@@ -25,15 +20,12 @@ freenect_context *f_ctx;
 freenect_device *f_dev;
 bool gotDepth;
 
-CVD::Image<uint16_t> depthImage(CVD::ImageRef(640,480));
-
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
-    depthImage.copy_from(CVD::BasicImage<uint16_t>((uint16_t*)v_depth, depthImage.size()));
     gotDepth = true;
 }
 
-int InitKinect(){
+int InitKinect( uint16_t * buffer ){
     if (freenect_init(&f_ctx, NULL) < 0) {
         cout << "freenect_init() failed" << endl;
         return 1;
@@ -52,10 +44,13 @@ int InitKinect(){
         cout << "Could not open device" << endl;
         return 1;
     }
-    
+
     freenect_set_depth_callback(f_dev, depth_cb);
     freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_11BIT));
+    freenect_set_depth_buffer(f_dev, buffer);
     freenect_start_depth(f_dev);
+
+    gotDepth = false;
 
     return 0;
 }
@@ -66,13 +61,10 @@ void CloseKinect(){
     freenect_shutdown(f_ctx);
 }
 
-CVD::Image<uint16_t> DepthFrameKinect() {
-    gotDepth = false;
+void DepthFrameKinect() {
     while (!gotDepth && freenect_process_events(f_ctx) >= 0){
-        CVD::Thread::sleep(0);
     }
-    
-    return depthImage;
+    gotDepth = false;
 }
 
 int main(int argc, char ** argv) {
@@ -80,33 +72,34 @@ int main(int argc, char ** argv) {
 
     KFusionConfig config;
 
-    // it is enough now to set the volume resolution once. 
+    // it is enough now to set the volume resolution once.
     // everything else is derived from that.
     // config.volumeSize = make_uint3(64);
     config.volumeSize = make_uint3(128);
     // config.volumeSize = make_uint3(256);
 
-#if 0
-    config.radius = (argc > 1 ) ? atoi(argv[1]) : 3;
-    config.delta = (argc > 2 ) ? atof(argv[2]) : 4.0f;
-    config.e_delta = (argc > 3 ) ? atof(argv[3]) : 0.1f;
-#endif
-  
     // these are physical dimensions in meters
     config.volumeDimensions = make_float3(size);
     config.nearPlane = 0.4f;
     config.farPlane = 5.0f;
     config.mu = 0.1;
-    
+    config.combinedTrackAndReduce = false;
+
     config.camera =  make_float4(297.12732, 296.24240, 169.89365, 121.25151);
-    
+
     config.iterations[0] = 10;
     config.iterations[1] = 5;
     config.iterations[2] = 4;
-    
+
     config.dist_threshold = (argc > 2 ) ? atof(argv[2]) : config.dist_threshold;
     config.normal_threshold = (argc > 3 ) ? atof(argv[3]) : config.normal_threshold;
-    
+
+    const uint2 imageSize = config.renderSize();
+
+    CVD::GLWindow window(CVD::ImageRef(imageSize.x * 2, imageSize.y * 2));
+    CVD::GLWindow::EventSummary events;
+    glDisable(GL_DEPTH_TEST);
+
     KFusion kfusion;
     kfusion.Init(config);
     if(printCUDAError()){
@@ -114,15 +107,10 @@ int main(int argc, char ** argv) {
         cudaDeviceReset();
         return 1;
     }
-    
-    const CVD::ImageRef imageSize(config.renderSize().x, config.renderSize().y);
-    
-    CVD::GLWindow window(imageSize.dot_times(CVD::ImageRef(2,2)));
-    CVD::GLWindow::EventSummary events;
-    glDisable(GL_DEPTH_TEST);
 
-    CVD::Image<CVD::Rgb<CVD::byte> > lightScene(imageSize), depth(imageSize), lightModel(imageSize);
-    
+    Image<uchar4, HostDevice> lightScene(imageSize), depth(imageSize), lightModel(imageSize);
+    Image<uint16_t, HostDevice> depthImage(make_uint2(640, 480));
+
     const float3 light = make_float3(1.0, -2, 1.0);
     const float3 ambient = make_float3(0.1, 0.1, 0.1);
     const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
@@ -131,7 +119,7 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
 
-    if(InitKinect())
+    if(InitKinect(depthImage.data()))
         return 1;
 
     bool integrate = true;
@@ -140,29 +128,32 @@ int main(int argc, char ** argv) {
     int counter = 0;
     while(!events.should_quit()){
         glClear( GL_COLOR_BUFFER_BIT );
-        Stats.start();
+        const double startFrame = Stats.start();
         ++counter;
 
-        CVD::Image<uint16_t> img = DepthFrameKinect();
+        DepthFrameKinect();
         const double startProcessing = Stats.sample("kinect");
 
-        kfusion.setKinectDepth(img.data());
+        kfusion.setKinectDeviceDepth(depthImage.getDeviceImage());
         Stats.sample("raw to cooked");
 
         integrate = kfusion.Track();
         Stats.sample("track");
-        
+
         if(integrate || reset ){
             kfusion.Integrate();
             Stats.sample("integrate");
             reset = false;
         }
 
-        renderLight( lightModel.data(), kfusion.vertex, kfusion.normal, light, ambient);
-        renderLight( lightScene.data(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
-        renderTrackResult( depth.data(), kfusion.reduction );
+        renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
+        renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
+        renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
+        cudaDeviceSynchronize();
+
         Stats.sample("render");
 
+        glClear( GL_COLOR_BUFFER_BIT );
         glRasterPos2i(0,imageSize.y * 0);
         glDrawPixels(lightScene);
         glRasterPos2i(imageSize.x, imageSize.y * 0);
@@ -170,43 +161,34 @@ int main(int argc, char ** argv) {
         glRasterPos2i(0,imageSize.y * 1);
         glDrawPixels(lightModel);
         Stats.sample("draw");
-        
+
         window.swap_buffers();
         events.clear();
         window.get_events(events);
 
-        if(events.key_up.count('p')){
-            CVD::Image<CVD::Rgb<CVD::byte> > screen(window.size());
-            glReadPixels(screen);
-            flipVertical(screen);
-            img_save(screen, "kinect_screen.jpg");
-        }
         if(events.key_up.count('c')){
             kfusion.Reset();
             kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
             reset = true;
-        }        
-        if(events.key_up.count('v')){
-            CVD::Image<float> vol = getVolume(kfusion.integration);
-            ostringstream sout;
-            sout << "volume_" << setw(3) << setfill('0') << counter << ".jpg";
-            img_save(vol, sout.str());
         }
-        const double endProcessing = Stats.sample("events");
-        
-        Stats.sample("total", endProcessing - startProcessing, PerfStats::TIME);
+
         if(counter % 50 == 0){
             Stats.print();
             Stats.reset();
             cout << endl;
         }
-        
+
         if(printCUDAError())
             break;
+
+        const double endProcessing = Stats.sample("events");
+        Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
+        Stats.sample("total_proc", endProcessing - startProcessing, PerfStats::TIME);
     }
-    
+
     CloseKinect();
     kfusion.Clear();
+
     cudaDeviceReset();
     return 0;
 }
