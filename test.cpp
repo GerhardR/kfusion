@@ -24,8 +24,6 @@ int main(int argc, char ** argv) {
     config.iterations[1] = 5;
     config.iterations[2] = 5;
 
-    config.imageBlock = dim3(20,20);
-
     config.camera = make_float4(100, 100, 160, 120);
     config.nearPlane = 0.001;
 

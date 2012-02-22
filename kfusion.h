@@ -33,8 +33,8 @@ struct KFusionConfig {
     
     float dist_threshold;       // 3D distance threshold for ICP correspondences
     float normal_threshold;     // dot product normal threshold for ICP correspondences
-    int iterations[3];          // max number of iterations per level
-    
+    std::vector<int> iterations;  // max number of iterations per level
+
     dim3 imageBlock;            // block size for image operations
     dim3 raycastBlock;          // block size for raycasting
     
@@ -56,11 +56,11 @@ struct KFusionConfig {
         
         dist_threshold = 0.2f;
         normal_threshold = 0.7f;
-        iterations[0] = 5;
-        iterations[1] = 5;
-        iterations[2] = 5;
-        
-        imageBlock = dim3(20,20);
+        iterations.push_back( 5 );
+        iterations.push_back( 5 );
+        iterations.push_back( 5 );
+
+        imageBlock = dim3(32,16);
         raycastBlock = dim3(32,8);
     }
     
@@ -469,8 +469,11 @@ struct TrackData {
 struct KFusion {
     Volume integration;
     Image<TrackData, Device> reduction;
-    Image<float3, Device> vertex, normal, inputVertex[3], inputNormal[3];
-    Image<float, Device> depth, inputDepth[3];
+    Image<float3, Device> vertex, normal;
+    Image<float, Device> depth;
+
+    std::vector<Image<float3, Device> > inputVertex, inputNormal;
+    std::vector<Image<float, Device> > inputDepth;
 
     Image<float, Device> rawDepth;
     Image<ushort, Device> rawKinectDepth;

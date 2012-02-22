@@ -111,6 +111,9 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
 
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK ){
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= depth.size.x || pixel.y >= depth.size.y )
+        return;
+
     if(depth[pixel] > 0){
         vertex[pixel] = depth[pixel] * (rotate(invK, make_float3(pixel.x, pixel.y, 1.f)));
     } else {
@@ -120,6 +123,9 @@ __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, co
 
 __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex ){
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= vertex.size.x || pixel.y >= vertex.size.y )
+        return;
+
     if(pixel.x == 0 || pixel.y == 0 || pixel.x == vertex.size.x - 1 || pixel.y == vertex.size.y - 1 ){
         normal[pixel].x = INVALID;
         return;
@@ -180,7 +186,10 @@ __global__ void bilateral_filter(Image<float> out, const Image<float> in, const 
 __global__ void halfSampleRobust( Image<float> out, const Image<float> in, const float e_d, const int r){
     const uint2 pixel = thr2pos2();
     const uint2 centerPixel = 2 * pixel;
-    
+
+    if(pixel.x >= out.size.x || pixel.y >= out.size.y )
+        return;
+
     float sum = 0.0f;
     float t = 0.0f;
     const float center = in[centerPixel];
@@ -203,6 +212,8 @@ __global__ void generate_gaussian(Image<float> out, float delta, int radius) {
 
 __global__ void track( Image<TrackData> output, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ) {
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= inVertex.size.x || pixel.y >= inVertex.size.y )
+        return;
 
     TrackData & row = output[pixel];
     
@@ -439,10 +450,14 @@ void KFusion::Init( const KFusionConfig & config ) {
     rawKinectDepth.alloc(make_uint2(640,480));
     rawDepth.alloc(config.renderSize());
 
-    for(int i = 0; i < 3; ++i){
-        inputDepth[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputVertex[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputNormal[i].alloc(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
+    inputDepth.resize(config.iterations.size());
+    inputVertex.resize(config.iterations.size());
+    inputNormal.resize(config.iterations.size());
+
+    for(int i = 0; i < config.iterations.size(); ++i){
+        inputDepth[i].alloc(config.renderSize() >> i);
+        inputVertex[i].alloc(config.renderSize() >> i);
+        inputNormal[i].alloc(config.renderSize() >> i);
     }
 
     gaussian.alloc(make_uint2(config.radius * 2 + 1, 1));
@@ -519,11 +534,10 @@ TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
 
 bool KFusion::Track() {
     const Matrix4 invK = getInverseCameraMatrix(configuration.camera);
-    dim3 grids[3] = { 
-        divup(configuration.renderSize(), configuration.imageBlock),
-        divup(dim3(configuration.renderSize().x / 2, configuration.renderSize().y / 2), configuration.imageBlock),
-        divup(dim3(configuration.renderSize().x / 4, configuration.renderSize().y / 4), configuration.imageBlock)
-    };
+
+    vector<dim3> grids;
+    for(int i = 0; i < configuration.iterations.size(); ++i)
+        grids.push_back(divup(configuration.renderSize() >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
     raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.5f * configuration.mu);
@@ -532,11 +546,11 @@ bool KFusion::Track() {
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
     
     // half sample the input depth maps into the pyramid levels
-    halfSampleRobust<<<grids[1], configuration.imageBlock>>>(inputDepth[1], inputDepth[0], configuration.e_delta * 3, 1);
-    halfSampleRobust<<<grids[2], configuration.imageBlock>>>(inputDepth[2], inputDepth[1], configuration.e_delta * 3, 1);
-    
+    for(int i = 1; i < configuration.iterations.size(); ++i)
+        halfSampleRobust<<<grids[i], configuration.imageBlock>>>(inputDepth[i], inputDepth[i-1], configuration.e_delta * 3, 1);
+
     // prepare the 3D information from the input depth maps
-    for(int i = 0; i < 3; ++i){
+    for(int i = 0; i < configuration.iterations.size(); ++i){
         depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / (1 << i))); // inverse camera matrix depends on level
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
     }
@@ -545,7 +559,7 @@ bool KFusion::Track() {
     Matrix4 oldInvPose = invPose;
     
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
-    for(int level = 2; level >= 0; --level){
+    for(int level = configuration.iterations.size()-1; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){
             if(configuration.combinedTrackAndReduce){
                 trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
