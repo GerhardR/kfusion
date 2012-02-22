@@ -87,6 +87,9 @@ int main(int argc, char ** argv) {
 
     config.camera =  make_float4(297.12732, 296.24240, 169.89365, 121.25151);
 
+    // config.iterations is a vector<int>, the length determines
+    // the number of levels to be used in tracking
+    // push back more then 3 iteraton numbers to get more levels.
     config.iterations[0] = 10;
     config.iterations[1] = 5;
     config.iterations[2] = 4;
