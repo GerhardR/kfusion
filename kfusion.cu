@@ -90,7 +90,7 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
     for(pix.z = 0; pix.z < vol.size.z; ++pix.z, pos += delta){
         if(pos.z < 0.0001f) // some near plane constraint
             continue;
-    
+
         const float3 cameraX = K * pos;
         const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
         if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
@@ -136,7 +136,7 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
         normal[pixel].x = INVALID;
         return;
     }
-    
+
     const float3 dx = center[+1] - center[-1];
     const float3 dy = center[+vertex.size.x] - center[-vertex.size.x];
     normal[pixel] = normalize(cross(dy, dx)); // switched dx and dy to get factor -1
@@ -158,12 +158,12 @@ __global__ void raw2cookedHalfSampled( Image<float> depth, const Image<ushort> i
 //column pass using coalesced global memory reads
 __global__ void bilateral_filter(Image<float> out, const Image<float> in, const Image<float> gaussian, const float e_d, const int r) {
     const uint2 pos = thr2pos2();
-    
+
     if(in[pos] == 0){
         out[pos] = 0;
         return;
     }
-    
+
     float sum = 0.0f;
     float t = 0.0f;
     const float center = in[pos];
@@ -216,7 +216,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
         return;
 
     TrackData & row = output[pixel];
-    
+
     if(inNormal[pixel].x == INVALID ){
         row.result = -1;
         return;
@@ -230,7 +230,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
         row.result = -2;
         return;
     }
-        
+
     const uint2 refPixel = make_uint2(projPixel.x, projPixel.y);
     const float3 referenceNormal = refNormal[refPixel];
 
@@ -238,7 +238,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
         row.result = -3;
         return;
     }
-    
+
     const float3 diff = refVertex[refPixel] - projectedVertex;
     const float3 projectedNormal = rotate(Ttrack, inNormal[pixel]);
 
@@ -260,14 +260,14 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
 __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size){
     __shared__ float S[112][32]; // this is for the final accumulation
     const uint sline = threadIdx.x;
-    
+
     float sums[32];
     float * jtj = sums + 7;
     float * info = sums + 28;
-    
+
     for(uint i = 0; i < 32; ++i)
         sums[i] = 0;
-    
+
     for(uint y = blockIdx.x; y < size.y; y += gridDim.x){
         for(uint x = sline; x < size.x; x += blockDim.x ){
             const TrackData & row = J[make_uint2(x, y)];
@@ -286,30 +286,30 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
                 sums[i+1] += row.error * row.J[i];
 
             // JTJ part, unfortunatly the double loop is not unrolled well...
-            jtj[0] += row.J[0] * row.J[0]; 
-            jtj[1] += row.J[0] * row.J[1]; 
-            jtj[2] += row.J[0] * row.J[2]; 
-            jtj[3] += row.J[0] * row.J[3]; 
-            jtj[4] += row.J[0] * row.J[4]; 
-            jtj[5] += row.J[0] * row.J[5]; 
+            jtj[0] += row.J[0] * row.J[0];
+            jtj[1] += row.J[0] * row.J[1];
+            jtj[2] += row.J[0] * row.J[2];
+            jtj[3] += row.J[0] * row.J[3];
+            jtj[4] += row.J[0] * row.J[4];
+            jtj[5] += row.J[0] * row.J[5];
 
-            jtj[6] += row.J[1] * row.J[1]; 
-            jtj[7] += row.J[1] * row.J[2]; 
-            jtj[8] += row.J[1] * row.J[3]; 
-            jtj[9] += row.J[1] * row.J[4]; 
-           jtj[10] += row.J[1] * row.J[5]; 
+            jtj[6] += row.J[1] * row.J[1];
+            jtj[7] += row.J[1] * row.J[2];
+            jtj[8] += row.J[1] * row.J[3];
+            jtj[9] += row.J[1] * row.J[4];
+           jtj[10] += row.J[1] * row.J[5];
 
-           jtj[11] += row.J[2] * row.J[2]; 
-           jtj[12] += row.J[2] * row.J[3]; 
-           jtj[13] += row.J[2] * row.J[4]; 
-           jtj[14] += row.J[2] * row.J[5]; 
+           jtj[11] += row.J[2] * row.J[2];
+           jtj[12] += row.J[2] * row.J[3];
+           jtj[13] += row.J[2] * row.J[4];
+           jtj[14] += row.J[2] * row.J[5];
 
-           jtj[15] += row.J[3] * row.J[3]; 
-           jtj[16] += row.J[3] * row.J[4]; 
-           jtj[17] += row.J[3] * row.J[5]; 
+           jtj[15] += row.J[3] * row.J[3];
+           jtj[16] += row.J[3] * row.J[4];
+           jtj[17] += row.J[3] * row.J[5];
 
-           jtj[18] += row.J[4] * row.J[4]; 
-           jtj[19] += row.J[4] * row.J[5]; 
+           jtj[18] += row.J[4] * row.J[4];
+           jtj[19] += row.J[4] * row.J[5];
 
            jtj[20] += row.J[5] * row.J[5];
 
@@ -333,44 +333,44 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
 __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ){
     __shared__ float S[112][32]; // this is for the final accumulation
     const uint sline = threadIdx.x;
-    
+
     float sums[32];
     float * jtj = sums + 7;
     float * info = sums + 28;
-    
+
     for(uint i = 0; i < 32; ++i)
         sums[i] = 0;
-    
+
     float J[6];
-    
+
     for(uint y = blockIdx.x; y < inVertex.size.y; y += gridDim.x){
         for(uint x = sline; x < inVertex.size.x; x += blockDim.x ){
             const uint2 pixel = make_uint2(x,y);
-            
+
             if(inNormal[pixel].x == INVALID){
                 continue;
             }
-        
+
             const float3 projectedVertex = Ttrack * inVertex[pixel];
             const float3 projectedPos = view * projectedVertex;
             const float2 projPixel = make_float2( projectedPos.x / projectedPos.z + 0.5f, projectedPos.y / projectedPos.z + 0.5f);
-        
+
             if(projPixel.x < 0 || projPixel.x > refVertex.size.x-1 || projPixel.y < 0 || projPixel.y > refVertex.size.y-1 ){
                 info[3] += 1;
                 continue;
             }
-                
+
             const uint2 refPixel = make_uint2(projPixel.x, projPixel.y);
-        
+
             if(refNormal[refPixel].x == INVALID){
                 info[3] += 1;
                 continue;
             }
-            
+
             const float3 referenceNormal = refNormal[refPixel];
             const float3 diff = refVertex[refPixel] - projectedVertex;
             const float3 projectedNormal = rotate(Ttrack, inNormal[pixel]);
-        
+
             if(length(diff) > dist_threshold ){
                 info[1] += 1;
                 continue;
@@ -379,11 +379,11 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
                 info[2] += 1;
                 continue;
             }
-        
+
             const float error = dot(referenceNormal, diff);
             ((float3 *)J)[0] = referenceNormal;
             ((float3 *)J)[1] = cross(projectedVertex, referenceNormal);
-            
+
             // Error part
             sums[0] += error * error;
 
@@ -392,30 +392,30 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
                 sums[i+1] += error * J[i];
 
             // JTJ part
-            jtj[0] += J[0] * J[0]; 
-            jtj[1] += J[0] * J[1]; 
-            jtj[2] += J[0] * J[2]; 
-            jtj[3] += J[0] * J[3]; 
-            jtj[4] += J[0] * J[4]; 
-            jtj[5] += J[0] * J[5]; 
+            jtj[0] += J[0] * J[0];
+            jtj[1] += J[0] * J[1];
+            jtj[2] += J[0] * J[2];
+            jtj[3] += J[0] * J[3];
+            jtj[4] += J[0] * J[4];
+            jtj[5] += J[0] * J[5];
 
-            jtj[6] += J[1] * J[1]; 
-            jtj[7] += J[1] * J[2]; 
-            jtj[8] += J[1] * J[3]; 
-            jtj[9] += J[1] * J[4]; 
-           jtj[10] += J[1] * J[5]; 
+            jtj[6] += J[1] * J[1];
+            jtj[7] += J[1] * J[2];
+            jtj[8] += J[1] * J[3];
+            jtj[9] += J[1] * J[4];
+           jtj[10] += J[1] * J[5];
 
-           jtj[11] += J[2] * J[2]; 
-           jtj[12] += J[2] * J[3]; 
-           jtj[13] += J[2] * J[4]; 
-           jtj[14] += J[2] * J[5]; 
+           jtj[11] += J[2] * J[2];
+           jtj[12] += J[2] * J[3];
+           jtj[13] += J[2] * J[4];
+           jtj[14] += J[2] * J[5];
 
-           jtj[15] += J[3] * J[3]; 
-           jtj[16] += J[3] * J[4]; 
-           jtj[17] += J[3] * J[5]; 
+           jtj[15] += J[3] * J[3];
+           jtj[16] += J[3] * J[4];
+           jtj[17] += J[3] * J[5];
 
-           jtj[18] += J[4] * J[4]; 
-           jtj[19] += J[4] * J[5]; 
+           jtj[18] += J[4] * J[4];
+           jtj[19] += J[4] * J[5];
 
            jtj[20] += J[5] * J[5];
 
@@ -438,7 +438,7 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
 
 void KFusion::Init( const KFusionConfig & config ) {
     configuration = config;
-    
+
     cudaSetDeviceFlags(cudaDeviceMapHost);
 
     integration.init(config.volumeSize, config.volumeDimensions);
@@ -487,19 +487,19 @@ void KFusion::setKinectDepth( ushort * ptr ){
     cudaMemcpy(rawKinectDepth.data(), ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
-    else 
+    else
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
 }
 
 void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
-    else 
+    else
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
 }
 
 inline Matrix4 toMatrix4( const TooN::SE3<> & p){
-    static TooN::Matrix<4> I = TooN::Identity; 
+    static TooN::Matrix<4> I = TooN::Identity;
     TooN::Matrix<4,4,float> T = p * I;
     Matrix4 R;
     memcpy(R.data, T.get_data_ptr(), 4*4*sizeof(float));
@@ -515,11 +515,11 @@ TooN::Matrix<6> makeJTJ( const TooN::Vector<21, P, A> & v ){
     C[3].template slice<3,3>() = v.template slice<15,3>();
     C[4].template slice<4,2>() = v.template slice<18,2>();
     C[5][5] = v[20];
-    
+
     for(int r = 1; r < 6; ++r)
         for(int c = 0; c < r; ++c)
             C[r][c] = C[c][r];
-    
+
     return C;
 }
 
@@ -527,7 +527,7 @@ template <typename T, typename A>
 TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
     const TooN::Vector<6> b = vals.template slice<0,6>();
     const TooN::Matrix<6> C = makeJTJ(vals.template slice<6,21>());
-    
+
     TooN::GR_SVD<6,6> svd(C);
     return svd.backsub(b, 1e6);
 }
@@ -544,7 +544,7 @@ bool KFusion::Track() {
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
-    
+
     // half sample the input depth maps into the pyramid levels
     for(int i = 1; i < configuration.iterations.size(); ++i)
         halfSampleRobust<<<grids[i], configuration.imageBlock>>>(inputDepth[i], inputDepth[i-1], configuration.e_delta * 3, 1);
@@ -554,10 +554,10 @@ bool KFusion::Track() {
         depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / (1 << i))); // inverse camera matrix depends on level
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
     }
-    
+
     Matrix4 oldPose = pose;
     Matrix4 oldInvPose = invPose;
-    
+
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){

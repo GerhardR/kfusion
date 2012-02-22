@@ -21,39 +21,39 @@ struct KFusionConfig {
     bool fullFrame;             // operate on 640x480 input downscale to 320x240 input
     bool combinedTrackAndReduce;// combine tracking and calculating linear system in one
                                 // this saves some time in tracking, but there is no per pixel output anymore
-    
+
     float4 camera;              // camera configuration parameters
     float nearPlane, farPlane;  // values for raycasting in meters
     float mu;                   // width of linear ramp, left and right of 0 in meters
     float maxweight;            // maximal weight for volume integration, controls speed of updates
-    
+
     int radius;                 // bilateral filter radius
     float delta;                // gaussian delta
     float e_delta;              // euclidean delta
-    
+
     float dist_threshold;       // 3D distance threshold for ICP correspondences
     float normal_threshold;     // dot product normal threshold for ICP correspondences
     std::vector<int> iterations;  // max number of iterations per level
 
     dim3 imageBlock;            // block size for image operations
     dim3 raycastBlock;          // block size for raycasting
-    
+
     KFusionConfig(){
         volumeSize = make_uint3(64);
         volumeDimensions = make_float3(1.f);
-        
+
         fullFrame = false;
         combinedTrackAndReduce = false;
-        
+
         nearPlane = 0.4f;
         farPlane = 4.0f;
         mu = 0.1f;
         maxweight = 100.0f;
-        
+
         radius = 2;
         delta = 4.0f;
         e_delta = 0.1f;
-        
+
         dist_threshold = 0.2f;
         normal_threshold = 0.7f;
         iterations.push_back( 5 );
@@ -63,7 +63,7 @@ struct KFusionConfig {
         imageBlock = dim3(32,16);
         raycastBlock = dim3(32,8);
     }
-    
+
     float stepSize() const {  return 0.5f * min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
     uint2 renderSize() const { return fullFrame ? make_uint2(640,480) : make_uint2(320,240); } // image resolution for rendering
 
@@ -71,7 +71,7 @@ struct KFusionConfig {
 
 struct Matrix4 {
     float4 data[4];
-    
+
     inline __host__ __device__ float3 get_translation() const {
         return make_float3(data[0].w, data[1].w, data[2].w);
     }
@@ -96,7 +96,7 @@ inline Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
     const Matrix4 T = transpose(B);
     Matrix4 C;
     for(uint r = 0; r < 4; ++r){
-        C.data[r] = make_float4(dot(A.data[r], T.data[0]), 
+        C.data[r] = make_float4(dot(A.data[r], T.data[0]),
                                 dot(A.data[r], T.data[1]),
                                 dot(A.data[r], T.data[2]),
                                 dot(A.data[r], T.data[3]));
@@ -134,11 +134,11 @@ inline Matrix4 getInverseCameraMatrix( const float4 & k ){
     invK.data[2] = make_float4(0, 0, 1, 0);
     invK.data[3] = make_float4(0, 0, 0, 1);
     return invK;
-} 
+}
 
 inline __device__ uint2 thr2pos2(){
 #ifdef __CUDACC__
-    return make_uint2( __umul24(blockDim.x, blockIdx.x) + threadIdx.x, 
+    return make_uint2( __umul24(blockDim.x, blockIdx.x) + threadIdx.x,
                        __umul24(blockDim.y, blockIdx.y) + threadIdx.y);
 #else
     return make_uint2(0);
@@ -157,7 +157,7 @@ struct Volume {
     uint3 size;
     float3 dim;
     short2 * data;
-    
+
     Volume() { size = make_uint3(0); dim = make_float3(1); data = NULL; }
 
     __device__ float2 operator[]( const uint3 & pos ) const {
@@ -180,7 +180,7 @@ struct Volume {
 #if 0   // only for testing without linear interpolation
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) , (pos.y * size.y / dim.y) , (pos.z * size.z / dim.z) );
         return v(make_uint3(clamp(make_int3(scaled_pos), make_int3(0), make_int3(size) - make_int3(1))));
-        
+
 #else
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) - 0.5f, (pos.y * size.y / dim.y) - 0.5f, (pos.z * size.z / dim.z) - 0.5f);
         const int3 base = make_int3(floorf(scaled_pos));
@@ -197,7 +197,7 @@ struct Volume {
             + v(make_uint3(upper.x, upper.y, upper.z)) * factor.x * factor.y * factor.z;
 #endif
     }
-    
+
     __device__ float3 grad( const float3 & pos ) const {
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) - 0.5f, (pos.y * size.y / dim.y) - 0.5f, (pos.z * size.z / dim.z) - 0.5f);
         const int3 base = make_int3(floorf(scaled_pos));
@@ -243,13 +243,13 @@ struct Volume {
 
         return gradient * make_float3(dim.x/size.x, dim.y/size.y, dim.z/size.z) * 0.5f;
     }
-    
+
     void init(uint3 s, float3 d){
-        size = s; 
+        size = s;
         dim = d;
         cudaMalloc(&data, size.x * size.y * size.z * sizeof(short2));
     }
-    
+
     void release(){
         cudaFree(data);
         data = NULL;
@@ -292,7 +292,7 @@ struct HostDevice {
 
 struct PBO {
     PBO() : data(NULL), pbo(NULL), id(0) {}
-    ~PBO() { 
+    ~PBO() {
         cudaGraphicsUnregisterResource(pbo);
         glDeleteBuffers(1, &id);
     }
@@ -380,7 +380,7 @@ struct Image : public Allocator {
 
     Image() : Allocator() { size = make_uint2(0);  }
     Image( const uint2 & s ) { alloc(s); }
-    
+
     void alloc( const uint2 & s ){
         if(s.x == size.x && s.y == size.y)
             return;
@@ -391,11 +391,11 @@ struct Image : public Allocator {
     __device__ T & el(){
         return operator[](thr2pos2());
     }
-    
+
     __device__ const T & el() const {
         return operator[](thr2pos2());
     }
-    
+
     __device__ T & operator[](const uint2 & pos ){
         return static_cast<T *>(Allocator::data)[pos.x + size.x * pos.y];
     }
@@ -403,7 +403,7 @@ struct Image : public Allocator {
     __device__ const T & operator[](const uint2 & pos ) const {
         return static_cast<const T *>(Allocator::data)[pos.x + size.x * pos.y];
     }
-    
+
     Image<T> getDeviceImage() {
         return Image<T>(size, Allocator::getDevice());
     }
@@ -438,11 +438,11 @@ struct Image<T, Ref> : public Ref {
     __device__ T & el(){
         return operator[](thr2pos2());
     }
-    
+
     __device__ const T & el() const {
         return operator[](thr2pos2());
     }
-    
+
     __device__ T & operator[](const uint2 & pos ){
         return static_cast<T *>(Ref::data)[pos.x + size.x * pos.y];
     }
@@ -450,7 +450,7 @@ struct Image<T, Ref> : public Ref {
     __device__ const T & operator[](const uint2 & pos ) const {
         return static_cast<const T *>(Ref::data)[pos.x + size.x * pos.y];
     }
- 
+
     T * data() {
         return static_cast<T *>(Ref::data);
     }

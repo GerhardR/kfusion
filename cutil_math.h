@@ -1171,41 +1171,41 @@ inline __device__ __host__ uint4 clamp(uint4 v, uint4 a, uint4 b)
 ////////////////////////////////////////////////////////////////////////////////
 
 inline __host__ __device__ float dot(float2 a, float2 b)
-{ 
+{
     return a.x * b.x + a.y * b.y;
 }
 inline __host__ __device__ float dot(float3 a, float3 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 inline __host__ __device__ float dot(float4 a, float4 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
 inline __host__ __device__ int dot(int2 a, int2 b)
-{ 
+{
     return a.x * b.x + a.y * b.y;
 }
 inline __host__ __device__ int dot(int3 a, int3 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 inline __host__ __device__ int dot(int4 a, int4 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
 inline __host__ __device__ uint dot(uint2 a, uint2 b)
-{ 
+{
     return a.x * b.x + a.y * b.y;
 }
 inline __host__ __device__ uint dot(uint3 a, uint3 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 inline __host__ __device__ uint dot(uint4 a, uint4 b)
-{ 
+{
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
@@ -1347,8 +1347,8 @@ inline __host__ __device__ float3 reflect(float3 i, float3 n)
 ////////////////////////////////////////////////////////////////////////////////
 
 inline __host__ __device__ float3 cross(float3 a, float3 b)
-{ 
-    return make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x); 
+{
+    return make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
