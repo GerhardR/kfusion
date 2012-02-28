@@ -1,6 +1,3 @@
-#undef isnan
-#undef isfinite
-
 #include "kfusion.h"
 #include "helpers.h"
 
@@ -8,7 +5,12 @@
 #include <sstream>
 #include <iomanip>
 
-#include <cvd/glwindow.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
+#include <GL/glut.h>
+#endif
+
 #include "perfstats.h"
 
 using namespace std;
@@ -67,6 +69,109 @@ void DepthFrameKinect() {
     gotDepth = false;
 }
 
+KFusion kfusion;
+Image<uchar4, HostDevice> lightScene, depth, lightModel;
+Image<uint16_t, HostDevice> depthImage;
+
+const float3 light = make_float3(1.0, -2, 1.0);
+const float3 ambient = make_float3(0.1, 0.1, 0.1);
+const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
+
+SE3<float> initPose;
+
+int counter = 0;
+bool reset = true;
+
+void display(void){
+    const uint2 imageSize = kfusion.configuration.renderSize();
+    static bool integrate = true;
+
+    glClear( GL_COLOR_BUFFER_BIT );
+    const double startFrame = Stats.start();
+
+    DepthFrameKinect();
+    const double startProcessing = Stats.sample("kinect");
+
+    kfusion.setKinectDeviceDepth(depthImage.getDeviceImage());
+    Stats.sample("raw to cooked");
+
+    integrate = kfusion.Track();
+    Stats.sample("track");
+
+    if(integrate || reset ){
+        kfusion.Integrate();
+        Stats.sample("integrate");
+        reset = false;
+    }
+
+    renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
+    renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
+    renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
+    cudaDeviceSynchronize();
+
+    Stats.sample("render");
+
+    glClear( GL_COLOR_BUFFER_BIT );
+    glRasterPos2i(0,imageSize.y * 0);
+    glDrawPixels(lightScene);
+    glRasterPos2i(imageSize.x, imageSize.y * 0);
+    glDrawPixels(depth);
+    glRasterPos2i(0,imageSize.y * 1);
+    glDrawPixels(lightModel);
+    const double endProcessing = Stats.sample("draw");
+
+    Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
+    Stats.sample("total_proc", endProcessing - startProcessing, PerfStats::TIME);
+
+    if(printCUDAError())
+        exit(1);
+
+    ++counter;
+
+    if(counter % 50 == 0){
+        Stats.print();
+        Stats.reset();
+        cout << endl;
+    }
+
+    glutSwapBuffers();
+}
+
+void idle(void){
+    glutPostRedisplay();
+}
+
+void keys(unsigned char key, int x, int y){
+    switch(key){
+    case 'c':
+        kfusion.Reset();
+        kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+        reset = true;
+        break;
+    case 'q':
+        exit(0);
+        break;
+    }
+}
+
+void reshape(int width, int height){
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glViewport(0, 0, width, height);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glColor3f(1.0f,1.0f,1.0f);
+    glRasterPos2f(-1, 1);
+    glOrtho(-0.375, width-0.375, height-0.375, -0.375, -1 , 1); //offsets to make (0,0) the top left pixel (rather than off the display)
+    glPixelZoom(1,-1);
+}
+
+void exitFunc(void){
+    CloseKinect();
+    kfusion.Clear();
+    cudaDeviceReset();
+}
+
 int main(int argc, char ** argv) {
     const float size = (argc > 1) ? atof(argv[1]) : 2.f;
 
@@ -97,101 +202,32 @@ int main(int argc, char ** argv) {
     config.dist_threshold = (argc > 2 ) ? atof(argv[2]) : config.dist_threshold;
     config.normal_threshold = (argc > 3 ) ? atof(argv[3]) : config.normal_threshold;
 
-    const uint2 imageSize = config.renderSize();
+    initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
-    CVD::GLWindow window(CVD::ImageRef(imageSize.x * 2, imageSize.y * 2));
-    CVD::GLWindow::EventSummary events;
-    glDisable(GL_DEPTH_TEST);
+    atexit(exitFunc);
 
-    KFusion kfusion;
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
+    glutInitWindowSize(config.renderSize().x * 2, config.renderSize().y * 2);
+    glutCreateWindow("kfusion");
+
     kfusion.Init(config);
-    if(printCUDAError()){
-        kfusion.Clear();
-        cudaDeviceReset();
-        return 1;
-    }
-
-    Image<uchar4, HostDevice> lightScene(imageSize), depth(imageSize), lightModel(imageSize);
-    Image<uint16_t, HostDevice> depthImage(make_uint2(640, 480));
-
-    const float3 light = make_float3(1.0, -2, 1.0);
-    const float3 ambient = make_float3(0.1, 0.1, 0.1);
-    const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
-
-    SE3<float> initPose(makeVector(size/2, size/2, 0, 0, 0, 0));
-
+    if(printCUDAError())
+        exit(1);
     kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
 
+    lightScene.alloc(config.renderSize()), depth.alloc(config.renderSize()), lightModel.alloc(config.renderSize());
+    depthImage.alloc(make_uint2(640, 480));
+
     if(InitKinect(depthImage.data()))
-        return 1;
+        exit(1);
 
-    bool integrate = true;
-    bool reset = true;
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keys);
+    glutReshapeFunc(reshape);
+    glutIdleFunc(idle);
 
-    int counter = 0;
-    while(!events.should_quit()){
-        glClear( GL_COLOR_BUFFER_BIT );
-        const double startFrame = Stats.start();
-        ++counter;
+    glutMainLoop();
 
-        DepthFrameKinect();
-        const double startProcessing = Stats.sample("kinect");
-
-        kfusion.setKinectDeviceDepth(depthImage.getDeviceImage());
-        Stats.sample("raw to cooked");
-
-        integrate = kfusion.Track();
-        Stats.sample("track");
-
-        if(integrate || reset ){
-            kfusion.Integrate();
-            Stats.sample("integrate");
-            reset = false;
-        }
-
-        renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
-        renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
-        renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
-        cudaDeviceSynchronize();
-
-        Stats.sample("render");
-
-        glClear( GL_COLOR_BUFFER_BIT );
-        glRasterPos2i(0,imageSize.y * 0);
-        glDrawPixels(lightScene);
-        glRasterPos2i(imageSize.x, imageSize.y * 0);
-        glDrawPixels(depth);
-        glRasterPos2i(0,imageSize.y * 1);
-        glDrawPixels(lightModel);
-        Stats.sample("draw");
-
-        window.swap_buffers();
-        events.clear();
-        window.get_events(events);
-
-        if(events.key_up.count('c')){
-            kfusion.Reset();
-            kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
-            reset = true;
-        }
-
-        if(counter % 50 == 0){
-            Stats.print();
-            Stats.reset();
-            cout << endl;
-        }
-
-        if(printCUDAError())
-            break;
-
-        const double endProcessing = Stats.sample("events");
-        Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
-        Stats.sample("total_proc", endProcessing - startProcessing, PerfStats::TIME);
-    }
-
-    CloseKinect();
-    kfusion.Clear();
-
-    cudaDeviceReset();
     return 0;
 }
