@@ -54,8 +54,8 @@ struct KFusionConfig {
         delta = 4.0f;
         e_delta = 0.1f;
 
-        dist_threshold = 0.2f;
-        normal_threshold = 0.7f;
+        dist_threshold = 0.1f;
+        normal_threshold = 0.8f;
         iterations.push_back( 5 );
         iterations.push_back( 5 );
         iterations.push_back( 5 );
@@ -64,7 +64,7 @@ struct KFusionConfig {
         raycastBlock = dim3(32,8);
     }
 
-    float stepSize() const {  return 0.5f * min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
+    float stepSize() const {  return min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
     uint2 renderSize() const { return fullFrame ? make_uint2(640,480) : make_uint2(320,240); } // image resolution for rendering
 
 };

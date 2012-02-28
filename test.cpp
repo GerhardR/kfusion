@@ -83,7 +83,7 @@ void display(void) {
     }
     Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
 
-    raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.5 * kfusion.configuration.mu );
+    raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.7 * kfusion.configuration.mu );
     cudaDeviceSynchronize();
     Stats.sample("view raycast");
     Stats.sample("view copy");

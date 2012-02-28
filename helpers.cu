@@ -131,20 +131,15 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear + largestep; d < tfar; d += largestep ){
-                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
-                    float dp = d - largestep;
-                    float dm = d;
-
-                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
-                        const float middle = (dp + dm) * 0.5f;
-                        const float decide = volume.interp(origin + direction * middle);
-                        dp = (decide >= 0) ? middle : dp;
-                        dm = (decide <= 0) ? middle : dm;
-                    }
-
-                    const float3 test = origin + direction * ((dm + dp) * 0.5f);
+        float t = tnear;
+        float stepsize = largestep;
+        float f_t = volume.interp(origin + direction * t);
+        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
+            for(; t < tfar; t += stepsize){
+                const float f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0){                               // got it, now bisect the interval
+                    t = t + stepsize * f_tt / (f_t - f_tt);
+                    const float3 test = origin + direction * t;
                     const float3 surfNorm = volume.grad(test);
                     if(length(surfNorm) > 0){
                         const float3 diff = normalize(light - test);
@@ -156,6 +151,9 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
                     }
                     return;
                 }
+                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
+                    stepsize = step;
+                f_t = f_tt;
             }
         }
     }
@@ -164,7 +162,7 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
 
 void renderVolumeLight( Image<uchar3> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
     dim3 block(16,16);
-    raycastLight<<<divup(out.size, block), block>>>( out,  volume, view, nearPlane, farPlane, 0.5f * volume.dim.x/volume.size.x, largestep, light, ambient );
+    raycastLight<<<divup(out.size, block), block>>>( out,  volume, view, nearPlane, farPlane, volume.dim.x/volume.size.x, largestep, light, ambient );
 }
 
 void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){

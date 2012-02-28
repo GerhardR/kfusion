@@ -46,23 +46,17 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear + largestep; d < tfar; d += largestep){
-                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
-                    float dp = d - largestep;
-                    float dm = d;
-
-                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
-                        const float middle = (dp + dm) * 0.5f;
-                        const float decide = volume.interp(origin + direction * middle);
-                        dp = (decide >= 0) ? middle : dp;
-                        dm = (decide <= 0) ? middle : dm;
-                    }
-
-                    d = (dm + dp) * 0.5f;
-                    const float3 test = origin + direction * d;
+        float t = tnear;
+        float stepsize = largestep;
+        float f_t = volume.interp(origin + direction * t);
+        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
+            for(; t < tfar; t += stepsize){
+                const float f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0){                               // got it, now bisect the interval
+                    t = t + stepsize * f_tt / (f_t - f_tt);
+                    const float3 test = origin + direction * t;
                     pos3D[pos] = test;
-                    depth[pos] = d;
+                    depth[pos] = t;
                     float3 surfNorm = volume.grad(test);
                     if(length(surfNorm) == 0){
                         normal[pos].x = INVALID;
@@ -71,6 +65,9 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
                     }
                     return;
                 }
+                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
+                    stepsize = step;
+                f_t = f_tt;
             }
         }
     }
@@ -540,7 +537,7 @@ bool KFusion::Track() {
         grids.push_back(divup(configuration.renderSize() >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.5f * configuration.mu);
+    raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
