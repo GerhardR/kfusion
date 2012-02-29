@@ -17,8 +17,8 @@ Requirements
 KFusion depends on the following libraries:
 
 * http://www.edwardrosten.com/cvd/toon.html
-* http://www.edwardrosten.com/cvd/index.html
 * http://openkinect.org/
+* GLUT
 
 and of course the CUDA 4.1 SDK by NVidia
 
@@ -41,6 +41,7 @@ Done
 -----
 - improved raycasting by an implementation closer to the paper. This also seems to take care of the following issue:
     - tracking works much better with a detailed model and sharp bounds on normals (0.9), problem for low resultion ?
+- replaced libcvd with GLUT in the master branch
 - created dedicated Image class templated on different memory locations,
   reduces most dependencies on libcvd
 - removed all 3D grids to reduce code and maybe speed up as well
