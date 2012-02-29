@@ -49,25 +49,28 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
         float t = tnear;
         float stepsize = largestep;
         float f_t = volume.interp(origin + direction * t);
+        float f_tt = 0;
         if( f_t > 0){     // ups, if we were already in it, then don't render anything here
             for(; t < tfar; t += stepsize){
-                const float f_tt = volume.interp(origin + direction * t);
-                if(f_tt < 0){                               // got it, now bisect the interval
-                    t = t + stepsize * f_tt / (f_t - f_tt);
-                    const float3 test = origin + direction * t;
-                    pos3D[pos] = test;
-                    depth[pos] = t;
-                    float3 surfNorm = volume.grad(test);
-                    if(length(surfNorm) == 0){
-                        normal[pos].x = INVALID;
-                    } else {
-                        normal[pos] = normalize(surfNorm);
-                    }
-                    return;
-                }
+                f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0)                               // got it, jump out of inner loop
+                    break;
                 if(f_tt < 0.8f)                            // coming closer, reduce stepsize
                     stepsize = step;
                 f_t = f_tt;
+            }
+            if(f_tt < 0){                               // got it, calculate accurate intersection
+                t = t + stepsize * f_tt / (f_t - f_tt);
+                const float3 test = origin + direction * t;
+                pos3D[pos] = test;
+                depth[pos] = t;
+                float3 surfNorm = volume.grad(test);
+                if(length(surfNorm) == 0){
+                    normal[pos].x = INVALID;
+                } else {
+                    normal[pos] = normalize(surfNorm);
+                }
+                return;
             }
         }
     }
