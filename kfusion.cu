@@ -14,7 +14,9 @@ static const float INVALID = -2;   // this is used to mark invalid entries in no
 using namespace std;
 
 __global__ void initVolume( Volume volume, const float2 val ){
-    volume.set(val);
+    uint3 pos = make_uint3(thr2pos2());
+    for(pos.z = 0; pos.z < volume.size.z; ++pos.z)
+        volume.set(pos, val);
 }
 
 __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
@@ -44,31 +46,31 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
-        if( volume.interp(origin + direction * tnear) > 0){                // ups, if we were already in it, then don't render anything here
-            for(float d = tnear + largestep; d < tfar; d += largestep){
-                if(volume.interp(origin + direction * d) < 0){          // got it, now bisect the interval
-                    float dp = d - largestep;
-                    float dm = d;
-
-                    while(fabsf(dp - dm) > step/10) {    // bisection until we are really small
-                        const float middle = (dp + dm) * 0.5f;
-                        const float decide = volume.interp(origin + direction * middle);
-                        dp = (decide >= 0) ? middle : dp;
-                        dm = (decide <= 0) ? middle : dm;
-                    }
-
-                    d = (dm + dp) * 0.5f;
-                    const float3 test = origin + direction * d;
-                    pos3D[pos] = test;
-                    depth[pos] = d;
-                    float3 surfNorm = volume.grad(test);
-                    if(length(surfNorm) == 0){
-                        normal[pos].x = INVALID;
-                    } else {
-                        normal[pos] = normalize(surfNorm);
-                    }
-                    return;
+        float t = tnear;
+        float stepsize = largestep;
+        float f_t = volume.interp(origin + direction * t);
+        float f_tt = 0;
+        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
+            for(; t < tfar; t += stepsize){
+                f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0)                               // got it, jump out of inner loop
+                    break;
+                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
+                    stepsize = step;
+                f_t = f_tt;
+            }
+            if(f_tt < 0){                               // got it, calculate accurate intersection
+                t = t + stepsize * f_tt / (f_t - f_tt);
+                const float3 test = origin + direction * t;
+                pos3D[pos] = test;
+                depth[pos] = t;
+                float3 surfNorm = volume.grad(test);
+                if(length(surfNorm) == 0){
+                    normal[pos].x = INVALID;
+                } else {
+                    normal[pos] = normalize(surfNorm);
                 }
+                return;
             }
         }
     }
@@ -88,7 +90,7 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
     for(pix.z = 0; pix.z < vol.size.z; ++pix.z, pos += delta){
         if(pos.z < 0.0001f) // some near plane constraint
             continue;
-    
+
         const float3 cameraX = K * pos;
         const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
         if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
@@ -140,6 +142,9 @@ __global__ void integrateFluid( Volume vol, const Image<float> depth, const Matr
 
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK ){
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= depth.size.x || pixel.y >= depth.size.y )
+        return;
+
     if(depth[pixel] > 0){
         vertex[pixel] = depth[pixel] * (rotate(invK, make_float3(pixel.x, pixel.y, 1.f)));
     } else {
@@ -149,6 +154,9 @@ __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, co
 
 __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex ){
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= vertex.size.x || pixel.y >= vertex.size.y )
+        return;
+
     if(pixel.x == 0 || pixel.y == 0 || pixel.x == vertex.size.x - 1 || pixel.y == vertex.size.y - 1 ){
         normal[pixel].x = INVALID;
         return;
@@ -159,7 +167,7 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
         normal[pixel].x = INVALID;
         return;
     }
-    
+
     const float3 dx = center[+1] - center[-1];
     const float3 dy = center[+vertex.size.x] - center[-vertex.size.x];
     normal[pixel] = normalize(cross(dy, dx)); // switched dx and dy to get factor -1
@@ -181,12 +189,12 @@ __global__ void raw2cookedHalfSampled( Image<float> depth, const Image<ushort> i
 //column pass using coalesced global memory reads
 __global__ void bilateral_filter(Image<float> out, const Image<float> in, const Image<float> gaussian, const float e_d, const int r) {
     const uint2 pos = thr2pos2();
-    
+
     if(in[pos] == 0){
         out[pos] = 0;
         return;
     }
-    
+
     float sum = 0.0f;
     float t = 0.0f;
     const float center = in[pos];
@@ -209,7 +217,10 @@ __global__ void bilateral_filter(Image<float> out, const Image<float> in, const 
 __global__ void halfSampleRobust( Image<float> out, const Image<float> in, const float e_d, const int r){
     const uint2 pixel = thr2pos2();
     const uint2 centerPixel = 2 * pixel;
-    
+
+    if(pixel.x >= out.size.x || pixel.y >= out.size.y )
+        return;
+
     float sum = 0.0f;
     float t = 0.0f;
     const float center = in[centerPixel];
@@ -232,9 +243,11 @@ __global__ void generate_gaussian(Image<float> out, float delta, int radius) {
 
 __global__ void track( Image<TrackData> output, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ) {
     const uint2 pixel = thr2pos2();
+    if(pixel.x >= inVertex.size.x || pixel.y >= inVertex.size.y )
+        return;
 
     TrackData & row = output[pixel];
-    
+
     if(inNormal[pixel].x == INVALID ){
         row.result = -1;
         return;
@@ -248,7 +261,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
         row.result = -2;
         return;
     }
-        
+
     const uint2 refPixel = make_uint2(projPixel.x, projPixel.y);
     const float3 referenceNormal = refNormal[refPixel];
 
@@ -256,7 +269,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
         row.result = -3;
         return;
     }
-    
+
     const float3 diff = refVertex[refPixel] - projectedVertex;
     const float3 projectedNormal = rotate(Ttrack, inNormal[pixel]);
 
@@ -278,14 +291,14 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
 __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size){
     __shared__ float S[112][32]; // this is for the final accumulation
     const uint sline = threadIdx.x;
-    
+
     float sums[32];
     float * jtj = sums + 7;
     float * info = sums + 28;
-    
+
     for(uint i = 0; i < 32; ++i)
         sums[i] = 0;
-    
+
     for(uint y = blockIdx.x; y < size.y; y += gridDim.x){
         for(uint x = sline; x < size.x; x += blockDim.x ){
             const TrackData & row = J[make_uint2(x, y)];
@@ -304,30 +317,30 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
                 sums[i+1] += row.error * row.J[i];
 
             // JTJ part, unfortunatly the double loop is not unrolled well...
-            jtj[0] += row.J[0] * row.J[0]; 
-            jtj[1] += row.J[0] * row.J[1]; 
-            jtj[2] += row.J[0] * row.J[2]; 
-            jtj[3] += row.J[0] * row.J[3]; 
-            jtj[4] += row.J[0] * row.J[4]; 
-            jtj[5] += row.J[0] * row.J[5]; 
+            jtj[0] += row.J[0] * row.J[0];
+            jtj[1] += row.J[0] * row.J[1];
+            jtj[2] += row.J[0] * row.J[2];
+            jtj[3] += row.J[0] * row.J[3];
+            jtj[4] += row.J[0] * row.J[4];
+            jtj[5] += row.J[0] * row.J[5];
 
-            jtj[6] += row.J[1] * row.J[1]; 
-            jtj[7] += row.J[1] * row.J[2]; 
-            jtj[8] += row.J[1] * row.J[3]; 
-            jtj[9] += row.J[1] * row.J[4]; 
-           jtj[10] += row.J[1] * row.J[5]; 
+            jtj[6] += row.J[1] * row.J[1];
+            jtj[7] += row.J[1] * row.J[2];
+            jtj[8] += row.J[1] * row.J[3];
+            jtj[9] += row.J[1] * row.J[4];
+           jtj[10] += row.J[1] * row.J[5];
 
-           jtj[11] += row.J[2] * row.J[2]; 
-           jtj[12] += row.J[2] * row.J[3]; 
-           jtj[13] += row.J[2] * row.J[4]; 
-           jtj[14] += row.J[2] * row.J[5]; 
+           jtj[11] += row.J[2] * row.J[2];
+           jtj[12] += row.J[2] * row.J[3];
+           jtj[13] += row.J[2] * row.J[4];
+           jtj[14] += row.J[2] * row.J[5];
 
-           jtj[15] += row.J[3] * row.J[3]; 
-           jtj[16] += row.J[3] * row.J[4]; 
-           jtj[17] += row.J[3] * row.J[5]; 
+           jtj[15] += row.J[3] * row.J[3];
+           jtj[16] += row.J[3] * row.J[4];
+           jtj[17] += row.J[3] * row.J[5];
 
-           jtj[18] += row.J[4] * row.J[4]; 
-           jtj[19] += row.J[4] * row.J[5]; 
+           jtj[18] += row.J[4] * row.J[4];
+           jtj[19] += row.J[4] * row.J[5];
 
            jtj[20] += row.J[5] * row.J[5];
 
@@ -351,44 +364,44 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
 __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ){
     __shared__ float S[112][32]; // this is for the final accumulation
     const uint sline = threadIdx.x;
-    
+
     float sums[32];
     float * jtj = sums + 7;
     float * info = sums + 28;
-    
+
     for(uint i = 0; i < 32; ++i)
         sums[i] = 0;
-    
+
     float J[6];
-    
+
     for(uint y = blockIdx.x; y < inVertex.size.y; y += gridDim.x){
         for(uint x = sline; x < inVertex.size.x; x += blockDim.x ){
             const uint2 pixel = make_uint2(x,y);
-            
+
             if(inNormal[pixel].x == INVALID){
                 continue;
             }
-        
+
             const float3 projectedVertex = Ttrack * inVertex[pixel];
             const float3 projectedPos = view * projectedVertex;
             const float2 projPixel = make_float2( projectedPos.x / projectedPos.z + 0.5f, projectedPos.y / projectedPos.z + 0.5f);
-        
+
             if(projPixel.x < 0 || projPixel.x > refVertex.size.x-1 || projPixel.y < 0 || projPixel.y > refVertex.size.y-1 ){
                 info[3] += 1;
                 continue;
             }
-                
+
             const uint2 refPixel = make_uint2(projPixel.x, projPixel.y);
-        
+
             if(refNormal[refPixel].x == INVALID){
                 info[3] += 1;
                 continue;
             }
-            
+
             const float3 referenceNormal = refNormal[refPixel];
             const float3 diff = refVertex[refPixel] - projectedVertex;
             const float3 projectedNormal = rotate(Ttrack, inNormal[pixel]);
-        
+
             if(length(diff) > dist_threshold ){
                 info[1] += 1;
                 continue;
@@ -397,11 +410,11 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
                 info[2] += 1;
                 continue;
             }
-        
+
             const float error = dot(referenceNormal, diff);
             ((float3 *)J)[0] = referenceNormal;
             ((float3 *)J)[1] = cross(projectedVertex, referenceNormal);
-            
+
             // Error part
             sums[0] += error * error;
 
@@ -410,30 +423,30 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
                 sums[i+1] += error * J[i];
 
             // JTJ part
-            jtj[0] += J[0] * J[0]; 
-            jtj[1] += J[0] * J[1]; 
-            jtj[2] += J[0] * J[2]; 
-            jtj[3] += J[0] * J[3]; 
-            jtj[4] += J[0] * J[4]; 
-            jtj[5] += J[0] * J[5]; 
+            jtj[0] += J[0] * J[0];
+            jtj[1] += J[0] * J[1];
+            jtj[2] += J[0] * J[2];
+            jtj[3] += J[0] * J[3];
+            jtj[4] += J[0] * J[4];
+            jtj[5] += J[0] * J[5];
 
-            jtj[6] += J[1] * J[1]; 
-            jtj[7] += J[1] * J[2]; 
-            jtj[8] += J[1] * J[3]; 
-            jtj[9] += J[1] * J[4]; 
-           jtj[10] += J[1] * J[5]; 
+            jtj[6] += J[1] * J[1];
+            jtj[7] += J[1] * J[2];
+            jtj[8] += J[1] * J[3];
+            jtj[9] += J[1] * J[4];
+           jtj[10] += J[1] * J[5];
 
-           jtj[11] += J[2] * J[2]; 
-           jtj[12] += J[2] * J[3]; 
-           jtj[13] += J[2] * J[4]; 
-           jtj[14] += J[2] * J[5]; 
+           jtj[11] += J[2] * J[2];
+           jtj[12] += J[2] * J[3];
+           jtj[13] += J[2] * J[4];
+           jtj[14] += J[2] * J[5];
 
-           jtj[15] += J[3] * J[3]; 
-           jtj[16] += J[3] * J[4]; 
-           jtj[17] += J[3] * J[5]; 
+           jtj[15] += J[3] * J[3];
+           jtj[16] += J[3] * J[4];
+           jtj[17] += J[3] * J[5];
 
-           jtj[18] += J[4] * J[4]; 
-           jtj[19] += J[4] * J[5]; 
+           jtj[18] += J[4] * J[4];
+           jtj[19] += J[4] * J[5];
 
            jtj[20] += J[5] * J[5];
 
@@ -457,34 +470,40 @@ __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const
 void KFusion::Init( const KFusionConfig & config ) {
     configuration = config;
 
+    cudaSetDeviceFlags(cudaDeviceMapHost);
+
     integration.init(config.volumeSize, config.volumeDimensions);
     hand.init(config.volumeSize, config.volumeDimensions);
 
-    reduction.init(config.renderSize());
-    vertex.init(config.renderSize());
-    normal.init(config.renderSize());
-    depth.init(config.renderSize());
-    rawKinectDepth.init(make_uint2(640,480));
-    rawDepth.init(config.renderSize());
+    reduction.alloc(config.renderSize());
+    vertex.alloc(config.renderSize());
+    normal.alloc(config.renderSize());
+    depth.alloc(config.renderSize());
+    rawKinectDepth.alloc(make_uint2(640,480));
+    rawDepth.alloc(config.renderSize());
 
-    for(int i = 0; i < 3; ++i){
-        inputDepth[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputVertex[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
-        inputNormal[i].init(make_uint2(config.renderSize().x / (1 << i), config.renderSize().y / (1 << i)));
+    inputDepth.resize(config.iterations.size());
+    inputVertex.resize(config.iterations.size());
+    inputNormal.resize(config.iterations.size());
+
+    for(int i = 0; i < config.iterations.size(); ++i){
+        inputDepth[i].alloc(config.renderSize() >> i);
+        inputVertex[i].alloc(config.renderSize() >> i);
+        inputNormal[i].alloc(config.renderSize() >> i);
     }
 
-    gaussian.init(make_uint2(config.radius * 2 + 1, 1));
-    output.init(make_uint2(32,8));
+    gaussian.alloc(make_uint2(config.radius * 2 + 1, 1));
+    output.alloc(make_uint2(32,8));
 
     //generate gaussian array
     generate_gaussian<<< 1, gaussian.size.x>>>(gaussian, config.delta, config.radius);
-    
+
     Reset();
 }
 
 void KFusion::Reset(){
-    dim3 grid, block;
-    computeVolumeConfiguration(grid, block, configuration.volumeSize);
+    dim3 block(32,16);
+    dim3 grid = divup(dim3(integration.size.x, integration.size.y), block);
     initVolume<<<grid, block>>>(integration, make_float2(1.0f, 0.0f));
     initVolume<<<grid, block>>>(hand, make_float2(1.0f, 0.0f));
  }
@@ -492,22 +511,6 @@ void KFusion::Reset(){
 void KFusion::Clear(){
     integration.release();
     hand.release();
-
-    reduction.release();
-    vertex.release();
-    normal.release();
-    depth.release();
-    rawKinectDepth.release();
-    rawDepth.release();
-
-    for(int i = 0; i < 3; ++i){
-        inputDepth[i].release();
-        inputVertex[i].release();
-        inputNormal[i].release();
-    }
-
-    gaussian.release();
-    output.release();
 }
 
 void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
@@ -516,23 +519,22 @@ void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
 }
 
 void KFusion::setKinectDepth( ushort * ptr ){
-    cudaMemcpy(rawKinectDepth.data, ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
+    cudaMemcpy(rawKinectDepth.data(), ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
     if(configuration.fullFrame)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
-    else 
+    else
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
 }
 
-void KFusion::setDeviceDepth( float * ptr ){
-    cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyDeviceToDevice);
-}
-
-void KFusion::setHostDepth( float * ptr ){
-    cudaMemcpy(rawDepth.data, ptr, rawDepth.size.x * rawDepth.size.y * sizeof(Image<float>::PIXEL_TYPE), cudaMemcpyHostToDevice);
+void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
+    if(configuration.fullFrame)
+        raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
+    else
+        raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
 }
 
 inline Matrix4 toMatrix4( const TooN::SE3<> & p){
-    static TooN::Matrix<4> I = TooN::Identity; 
+    static TooN::Matrix<4> I = TooN::Identity;
     TooN::Matrix<4,4,float> T = p * I;
     Matrix4 R;
     memcpy(R.data, T.get_data_ptr(), 4*4*sizeof(float));
@@ -548,11 +550,11 @@ TooN::Matrix<6> makeJTJ( const TooN::Vector<21, P, A> & v ){
     C[3].template slice<3,3>() = v.template slice<15,3>();
     C[4].template slice<4,2>() = v.template slice<18,2>();
     C[5][5] = v[20];
-    
+
     for(int r = 1; r < 6; ++r)
         for(int c = 0; c < r; ++c)
             C[r][c] = C[c][r];
-    
+
     return C;
 }
 
@@ -560,48 +562,47 @@ template <typename T, typename A>
 TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
     const TooN::Vector<6> b = vals.template slice<0,6>();
     const TooN::Matrix<6> C = makeJTJ(vals.template slice<6,21>());
-    
+
     TooN::GR_SVD<6,6> svd(C);
     return svd.backsub(b, 1e6);
 }
 
 bool KFusion::Track() {
     const Matrix4 invK = getInverseCameraMatrix(configuration.camera);
-    dim3 grids[3] = { 
-        divup(configuration.renderSize(), configuration.imageBlock),
-        divup(dim3(configuration.renderSize().x / 2, configuration.renderSize().y / 2), configuration.imageBlock),
-        divup(dim3(configuration.renderSize().x / 4, configuration.renderSize().y / 4), configuration.imageBlock)
-    };
+
+    vector<dim3> grids;
+    for(int i = 0; i < configuration.iterations.size(); ++i)
+        grids.push_back(divup(configuration.renderSize() >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.5f * configuration.mu);
+    raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
-    
+
     // half sample the input depth maps into the pyramid levels
-    halfSampleRobust<<<grids[1], configuration.imageBlock>>>(inputDepth[1], inputDepth[0], configuration.e_delta * 3, 1);
-    halfSampleRobust<<<grids[2], configuration.imageBlock>>>(inputDepth[2], inputDepth[1], configuration.e_delta * 3, 1);
-    
+    for(int i = 1; i < configuration.iterations.size(); ++i)
+        halfSampleRobust<<<grids[i], configuration.imageBlock>>>(inputDepth[i], inputDepth[i-1], configuration.e_delta * 3, 1);
+
     // prepare the 3D information from the input depth maps
-    for(int i = 0; i < 3; ++i){
+    for(int i = 0; i < configuration.iterations.size(); ++i){
         depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / (1 << i))); // inverse camera matrix depends on level
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
     }
-    
+
     Matrix4 oldPose = pose;
     Matrix4 oldInvPose = invPose;
-    
-    TooN::Matrix<8, 32, float> values = TooN::Zeros;
-    for(int level = 2; level >= 0; --level){
+
+    TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
+    for(int level = configuration.iterations.size()-1; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){
             if(configuration.combinedTrackAndReduce){
-                trackAndReduce<<<8, 112>>>( output.data, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
+                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
             } else {
                 track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold);
-                reduce<<<8, 112>>>( output.data, reduction, inputVertex[level].size );             // compute the linear system to solve
+                reduce<<<8, 112>>>( output.getDeviceImage().data(), reduction, inputVertex[level].size );             // compute the linear system to solve
             }
-            output.get(values.get_data_ptr());
+            cudaDeviceSynchronize(); // important due to async nature of kernel call
             for(int j = 1; j < 8; ++j)
                 values[0] += values[j];
             TooN::Vector<6> x = solve(values[0].slice<1,27>());
@@ -621,13 +622,11 @@ bool KFusion::Track() {
 }
 
 void KFusion::Integrate() {
-    dim3 block(32,16);
-    integrate<<<divup(dim3(integration.size.x, integration.size.y), block), block>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
 }
 
 void KFusion::IntegrateHand() {
-    dim3 block(32,16);
-    integrateFluid<<<divup(dim3(integration.size.x, integration.size.y), block), block>>>( hand, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight/20 );
+    integrateFluid<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( hand, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight/20 );
 }
 
 __global__ void filterRawDepth( Image<float> depth, const Image<TrackData> output ) {
