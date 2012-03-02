@@ -71,8 +71,8 @@ void renderLight( Image<uchar4> out, const Image<float3> & vertex, const Image<f
     renderLightKernel<<<divup(normal.size, block), block>>>( out, vertex, normal, light, ambient );
 }
 
-__global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const float near, const float far){
-    const float d = (clamp(depth.el(), near, far) - near) / (far - near);
+__global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const float nearPlane, const float farPlane){
+    const float d = (clamp(depth.el(), nearPlane, farPlane) - nearPlane) / (farPlane - nearPlane);
     out.el() = make_uchar3(d * 255, d * 255, d * 255);
 }
 
@@ -104,7 +104,7 @@ void renderTrackResult( Image<uchar4> out, const Image<TrackData> & data ){
     renderTrack<<<divup(out.size, block), block>>>( out, data );
 }
 
-__global__ void raycastLight( Image<uchar3> render, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep, const float3 light, const float3 ambient){
+__global__ void raycastLight( Image<uchar4> render, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep, const float3 light, const float3 ambient){
     const uint2 pos = thr2pos2();
 
     float3 origin = view.get_translation();
@@ -126,46 +126,49 @@ __global__ void raycastLight( Image<uchar3> render, const Volume volume, const M
     float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
 
     // check against near and far plane
-    float tnear = fmaxf(largest_tmin, near);
-    float tfar = fminf(smallest_tmax, far);
+    float tnear = fmaxf(largest_tmin, nearPlane);
+    float tfar = fminf(smallest_tmax, farPlane);
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
         float t = tnear;
         float stepsize = largestep;
         float f_t = volume.interp(origin + direction * t);
+        float f_tt = 0;
         if( f_t > 0){     // ups, if we were already in it, then don't render anything here
             for(; t < tfar; t += stepsize){
-                const float f_tt = volume.interp(origin + direction * t);
-                if(f_tt < 0){                               // got it, now bisect the interval
-                    t = t + stepsize * f_tt / (f_t - f_tt);
-                    const float3 test = origin + direction * t;
-                    const float3 surfNorm = volume.grad(test);
-                    if(length(surfNorm) > 0){
-                        const float3 diff = normalize(light - test);
-                        const float dir = fmaxf(dot(normalize(surfNorm), diff), 0.f);
-                        const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
-                        render.el() = make_uchar3(col.x, col.y, col.z);
-                    } else {
-                        render.el() = make_uchar3(0,0,0);
-                    }
-                    return;
-                }
+                f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0)                               // got it, jump out of inner loop
+                    break;
                 if(f_tt < 0.8f)                            // coming closer, reduce stepsize
                     stepsize = step;
                 f_t = f_tt;
             }
+            if(f_tt < 0){                               // got it, calculate accurate intersection
+                t = t + stepsize * f_tt / (f_t - f_tt);
+                const float3 test = origin + direction * t;
+                const float3 surfNorm = volume.grad(test);
+                if(length(surfNorm) > 0){
+                    const float3 diff = normalize(light - test);
+                    const float dir = fmaxf(dot(normalize(surfNorm), diff), 0.f);
+                    const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
+                    render.el() = make_uchar4(col.x, col.y, col.z,0);
+                } else {
+                    render.el() = make_uchar4(0,0,0,0);
+                }
+                return;
+            }
         }
     }
-    render.el() = make_uchar3(0,0,0);
+    render.el() = make_uchar4(0,0,0,0);
 }
 
-void renderVolumeLight( Image<uchar3> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
+void renderVolumeLight( Image<uchar4> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
     dim3 block(16,16);
     raycastLight<<<divup(out.size, block), block>>>( out,  volume, view, nearPlane, farPlane, volume.dim.x/volume.size.x, largestep, light, ambient );
 }
 
-void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
+void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
     dim3 block(16,16);
-    raycast<<<divup(pos3D.size, block), block>>>(pos3D, normal, depth, volume, view, near, far, step, largestep);
+    raycast<<<divup(pos3D.size, block), block>>>(pos3D, normal, depth, volume, view, nearPlane, farPlane, step, largestep);
 }

@@ -514,7 +514,7 @@ int printCUDAError(); // print the last error
 // low level API without any state. These are the kernel functions
 
 __global__ void initVolume( Volume volume, const float2 val );
-__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep);
+__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
 __global__ void integrate( Volume vol, Volume weight, const Image<float> depth, const Matrix4 view, const float mu, const float maxweight);
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK );
 __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex );
