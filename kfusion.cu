@@ -19,7 +19,7 @@ __global__ void initVolume( Volume volume, const float2 val ){
         volume.set(pos, val);
 }
 
-__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep){
+__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
     const uint2 pos = thr2pos2();
 
     const float3 origin = view.get_translation();
@@ -41,8 +41,8 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float>
     const float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
 
     // check against near and far plane
-    const float tnear = fmaxf(largest_tmin, near);
-    const float tfar = fminf(smallest_tmax, far);
+    const float tnear = fmaxf(largest_tmin, nearPlane);
+    const float tfar = fminf(smallest_tmax, farPlane);
 
     if(tnear < tfar) {
         // first walk with largesteps until we found a hit
