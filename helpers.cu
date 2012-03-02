@@ -62,7 +62,7 @@ __global__ void renderLightKernel( Image<uchar4> out, const Image<float3> vertex
         const float3 diff = normalize(light - vertex.el());
         const float dir = fmaxf(dot(normal.el(), diff), 0.f);
         const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
-        out.el() = make_uchar4(col.x, col.y, col.z, 0);
+        out.el() = make_uchar4(col.x, col.y, col.z, 1);
     }
 }
 

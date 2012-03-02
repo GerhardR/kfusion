@@ -75,7 +75,6 @@ Image<uint16_t, HostDevice> depthImage;
 
 const float3 light = make_float3(1.0, -2, 1.0);
 const float3 ambient = make_float3(0.1, 0.1, 0.1);
-const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
 
 SE3<float> initPose;
 
@@ -113,7 +112,8 @@ void display(void){
 
     if(handTrack){
         renderVolumeLight(lightScene.getDeviceImage(), kfusion.hand, kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), 0.4f, 5.0f, kfusion.configuration.mu * 0.75, light, ambient );
-        glRasterPos2i(imageSize.x, imageSize.y * 1);
+        cudaDeviceSynchronize();
+        glRasterPos2i(imageSize.x, imageSize.y);
         glDrawPixels(lightScene);
         Stats.sample("hand render");
     }
@@ -125,7 +125,6 @@ void display(void){
 
     Stats.sample("render");
 
-    glClear( GL_COLOR_BUFFER_BIT );
     glRasterPos2i(0,imageSize.y * 0);
     glDrawPixels(lightScene);
     glRasterPos2i(imageSize.x, imageSize.y * 0);
