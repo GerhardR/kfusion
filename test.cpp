@@ -115,11 +115,11 @@ void display(void) {
 void keys(unsigned char key, int x, int y) {
     switch(key){
     case 'r':
-        kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
+        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
         break;
     case 'c':
         kfusion.Reset();
-        kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
+        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
         break;
     case 'd':
         cout << kfusion.pose << endl;
@@ -202,7 +202,7 @@ int main(int argc, char ** argv) {
     setBoxWrap(reference, make_float3(0.8f,0.1f,0.1f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setSphereWrap(reference, make_float3(0.5f), 0.2f, -1.0f);
 
-    kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
+    kfusion.setPose( toMatrix4( trans * rot * preTrans ));
 
     vertex.alloc(config.renderSize());
     normal.alloc(config.renderSize());
