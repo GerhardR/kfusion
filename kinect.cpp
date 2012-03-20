@@ -97,11 +97,11 @@ void display(void){
     integrate = kfusion.Track();
     Stats.sample("track");
 
-    if(integrate || reset){
-        kfusion.Integrate();
-        Stats.sample("integrate");
-        reset = false;
-    }
+        if(integrate || reset){
+            kfusion.Integrate();
+            Stats.sample("integrate");
+            reset = false;
+        }
 
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
@@ -144,7 +144,7 @@ void keys(unsigned char key, int x, int y){
     switch(key){
     case 'c':
         kfusion.Reset();
-        kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+        kfusion.setPose(toMatrix4(initPose));
         reset = true;
         break;
     case 'q':
@@ -211,7 +211,8 @@ int main(int argc, char ** argv) {
     kfusion.Init(config);
     if(printCUDAError())
         exit(1);
-    kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+
+    kfusion.setPose(toMatrix4(initPose));
 
     lightScene.alloc(config.renderSize()), depth.alloc(config.renderSize()), lightModel.alloc(config.renderSize());
     depthImage.alloc(make_uint2(640, 480));
