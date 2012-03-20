@@ -109,37 +109,6 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
     }
 }
 
-__global__ void integrateFluid( Volume vol, const Image<float> depth, const Matrix4 invTrack, const Matrix4 K, const float mu, const float maxweight){
-    uint3 pix = make_uint3(thr2pos2());
-    float3 pos = invTrack * vol.pos(pix);
-    const float3 delta = rotate(invTrack, make_float3(0,0, vol.dim.z / vol.size.z));
-    for(pix.z = 0; pix.z < vol.size.z; ++pix.z, pos += delta){
-        if(pos.z < 0.0001f) // some near plane constraint
-            continue;
-    
-        const float3 cameraX = K * pos;
-        const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
-        if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
-            continue;
-        const uint2 px = make_uint2(pixel.x, pixel.y);
-        if(depth[px] == 0) {
-            float2 data = vol[pix];
-            data.x = clamp((data.y*data.x + 1.f)/(data.y + 1), -1.f, 1.f);
-            data.y = fminf(data.y+1, maxweight);
-            vol.set(pix, data);
-            continue;
-        }
-        const float diff = (depth[px] - cameraX.z) * sqrt(1+sq(pos.x/pos.z) + sq(pos.y/pos.z));
-        if(diff > -mu){
-            const float sdf = fminf(1.f, diff/mu);
-            float2 data = vol[pix];
-            data.x = clamp((data.y*data.x + sdf)/(data.y + 1), -1.f, 1.f);
-            data.y = fminf(data.y+1, maxweight);
-            vol.set(pix, data);
-        }
-    }
-}
-
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK ){
     const uint2 pixel = thr2pos2();
     if(pixel.x >= depth.size.x || pixel.y >= depth.size.y )
@@ -473,7 +442,6 @@ void KFusion::Init( const KFusionConfig & config ) {
     cudaSetDeviceFlags(cudaDeviceMapHost);
 
     integration.init(config.volumeSize, config.volumeDimensions);
-    hand.init(config.volumeSize, config.volumeDimensions);
 
     reduction.alloc(config.renderSize());
     vertex.alloc(config.renderSize());
@@ -505,12 +473,10 @@ void KFusion::Reset(){
     dim3 block(32,16);
     dim3 grid = divup(dim3(integration.size.x, integration.size.y), block);
     initVolume<<<grid, block>>>(integration, make_float2(1.0f, 0.0f));
-    initVolume<<<grid, block>>>(hand, make_float2(1.0f, 0.0f));
  }
 
 void KFusion::Clear(){
     integration.release();
-    hand.release();
 }
 
 void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
@@ -623,19 +589,6 @@ bool KFusion::Track() {
 
 void KFusion::Integrate() {
     integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
-}
-
-void KFusion::IntegrateHand() {
-    integrateFluid<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( hand, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight/20 );
-}
-
-__global__ void filterRawDepth( Image<float> depth, const Image<TrackData> output ) {
-    if(output.el().result != -4)
-        depth.el() = 0;
-}
-
-void KFusion::FilterRawDepth() {
-    filterRawDepth<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>(rawDepth, reduction);
 }
 
 int printCUDAError() {

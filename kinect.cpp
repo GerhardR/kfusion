@@ -80,7 +80,6 @@ SE3<float> initPose;
 
 int counter = 0;
 bool reset = true;
-bool handTrack = false;
 
 void display(void){
     const uint2 imageSize = kfusion.configuration.renderSize();
@@ -98,24 +97,10 @@ void display(void){
     integrate = kfusion.Track();
     Stats.sample("track");
 
-    if(!handTrack){
-        if(integrate || reset){
-            kfusion.Integrate();
-            Stats.sample("integrate");
-            reset = false;
-        }
-    } else {
-        kfusion.FilterRawDepth();
-        kfusion.IntegrateHand();
-        Stats.sample("hand integrate");
-    }
-
-    if(handTrack){
-        renderVolumeLight(lightScene.getDeviceImage(), kfusion.hand, kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), 0.4f, 5.0f, kfusion.configuration.mu * 0.75, light, ambient );
-        cudaDeviceSynchronize();
-        glRasterPos2i(imageSize.x, imageSize.y);
-        glDrawPixels(lightScene);
-        Stats.sample("hand render");
+    if(integrate || reset){
+        kfusion.Integrate();
+        Stats.sample("integrate");
+        reset = false;
     }
 
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
@@ -125,6 +110,7 @@ void display(void){
 
     Stats.sample("render");
 
+    glClear(GL_COLOR_BUFFER_BIT);
     glRasterPos2i(0,imageSize.y * 0);
     glDrawPixels(lightScene);
     glRasterPos2i(imageSize.x, imageSize.y * 0);
@@ -160,13 +146,9 @@ void keys(unsigned char key, int x, int y){
         kfusion.Reset();
         kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
         reset = true;
-        handTrack = false;
         break;
     case 'q':
         exit(0);
-        break;
-    case 'h':
-        handTrack = !handTrack;
         break;
     }
 }
@@ -221,8 +203,6 @@ int main(int argc, char ** argv) {
 
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
-    atexit(exitFunc);
-
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
     glutInitWindowSize(config.renderSize().x * 2, config.renderSize().y * 2);
@@ -239,6 +219,7 @@ int main(int argc, char ** argv) {
     if(InitKinect(depthImage.data()))
         exit(1);
 
+    atexit(exitFunc);
     glutDisplayFunc(display);
     glutKeyboardFunc(keys);
     glutReshapeFunc(reshape);

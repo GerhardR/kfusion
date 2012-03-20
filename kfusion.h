@@ -467,7 +467,7 @@ struct TrackData {
 };
 
 struct KFusion {
-    Volume integration, hand;
+    Volume integration;
     Image<TrackData, Device> reduction;
     Image<float3, Device> vertex, normal;
     Image<float, Device> depth;
@@ -504,9 +504,6 @@ struct KFusion {
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose
-    void IntegrateHand();
-    
-    void FilterRawDepth();
 };
 
 int printCUDAError(); // print the last error
