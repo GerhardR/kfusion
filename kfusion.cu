@@ -478,9 +478,8 @@ void KFusion::Clear(){
     integration.release();
 }
 
-void KFusion::setPose( const Matrix4 & p, const Matrix4 & invP ){
+void KFusion::setPose( const Matrix4 & p ){
     pose = p;
-    invPose = invP;
 }
 
 void KFusion::setKinectDepth( ushort * ptr ){
@@ -498,11 +497,24 @@ void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
 }
 
-inline Matrix4 toMatrix4( const TooN::SE3<> & p){
-    static TooN::Matrix<4> I = TooN::Identity;
-    TooN::Matrix<4,4,float> T = p * I;
+Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
     Matrix4 R;
-    memcpy(R.data, T.get_data_ptr(), 4*4*sizeof(float));
+    TooN::wrapMatrix<4,4>(&R.data[0].x) = TooN::wrapMatrix<4,4>(&A.data[0].x) * TooN::wrapMatrix<4,4>(&B.data[0].x);
+    return R;
+}
+
+inline Matrix4 toMatrix4( const TooN::SE3<> & p){
+    static TooN::Matrix<4, 4, float> I = TooN::Identity;
+    Matrix4 R;
+    TooN::wrapMatrix<4,4>(&R.data[0].x) = p * I;
+    return R;
+}
+
+Matrix4 inverse( const Matrix4 & A ){
+    static TooN::Matrix<4, 4, float> I = TooN::Identity;
+    TooN::Matrix<4,4,float> temp =  TooN::wrapMatrix<4,4>(&A.data[0].x);
+    Matrix4 R;
+    TooN::wrapMatrix<4,4>(&R.data[0].x) = TooN::gaussian_elimination(temp , I );
     return R;
 }
 
@@ -556,15 +568,14 @@ bool KFusion::Track() {
     }
 
     Matrix4 oldPose = pose;
-    Matrix4 oldInvPose = invPose;
 
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){
             if(configuration.combinedTrackAndReduce){
-                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold );
+                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold );
             } else {
-                track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * invPose, configuration.dist_threshold, configuration.normal_threshold);
+                track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold);
                 reduce<<<8, 112>>>( output.getDeviceImage().data(), reduction, inputVertex[level].size );             // compute the linear system to solve
             }
             cudaDeviceSynchronize(); // important due to async nature of kernel call
@@ -573,22 +584,19 @@ bool KFusion::Track() {
             TooN::Vector<6> x = solve(values[0].slice<1,27>());
             TooN::SE3<> delta(x);
             pose = toMatrix4( delta ) * pose;
-            invPose = invPose * toMatrix4(delta.inverse());
             if(norm(x) < 1e-7)
                 break;
         }
     }
     if(sqrt(values(0,0) / values(0,28)) > 2e-2){
         pose = oldPose;
-        invPose = oldInvPose;
         return false;
     }
     return true;
 }
 
 void KFusion::Integrate() {
-    dim3 block(32,16);
-    integrate<<<divup(dim3(integration.size.x, integration.size.y), block), block>>>( integration, rawDepth, invPose, getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, inverse(pose), getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
 }
 
 int printCUDAError() {

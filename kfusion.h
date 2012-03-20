@@ -83,26 +83,8 @@ inline std::ostream & operator<<( std::ostream & out, const Matrix4 & m ){
     return out;
 }
 
-inline Matrix4 transpose( const Matrix4 & A ){
-    Matrix4 T;
-    T.data[0] = make_float4(A.data[0].x, A.data[1].x, A.data[2].x, A.data[3].x);
-    T.data[1] = make_float4(A.data[0].y, A.data[1].y, A.data[2].y, A.data[3].y);
-    T.data[2] = make_float4(A.data[0].z, A.data[1].z, A.data[2].z, A.data[3].z);
-    T.data[3] = make_float4(A.data[0].w, A.data[1].w, A.data[2].w, A.data[3].w);
-    return T;
-}
-
-inline Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
-    const Matrix4 T = transpose(B);
-    Matrix4 C;
-    for(uint r = 0; r < 4; ++r){
-        C.data[r] = make_float4(dot(A.data[r], T.data[0]),
-                                dot(A.data[r], T.data[1]),
-                                dot(A.data[r], T.data[2]),
-                                dot(A.data[r], T.data[3]));
-    }
-    return C;
-}
+Matrix4 operator*( const Matrix4 & A, const Matrix4 & B);
+Matrix4 inverse( const Matrix4 & A );
 
 inline __host__ __device__ float3 operator*( const Matrix4 & M, const float3 & v){
     return make_float3(
@@ -483,12 +465,12 @@ struct KFusion {
 
     KFusionConfig configuration;
 
-    Matrix4 pose, invPose;
+    Matrix4 pose;
 
     void Init( const KFusionConfig & config ); // allocates the volume and image data on the device
     void Clear();  // releases the allocated device memory
 
-    void setPose( const Matrix4 & p, const Matrix4 & invP ); // sets the current pose of the camera
+    void setPose( const Matrix4 & p ); // sets the current pose of the camera
 
     // high level API to run a simple tracking - reconstruction loop
     void Reset(); // removes all reconstruction information

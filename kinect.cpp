@@ -75,7 +75,6 @@ Image<uint16_t, HostDevice> depthImage;
 
 const float3 light = make_float3(1.0, -2, 1.0);
 const float3 ambient = make_float3(0.1, 0.1, 0.1);
-const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
 
 SE3<float> initPose;
 
@@ -98,11 +97,11 @@ void display(void){
     integrate = kfusion.Track();
     Stats.sample("track");
 
-    if(integrate || reset ){
-        kfusion.Integrate();
-        Stats.sample("integrate");
-        reset = false;
-    }
+        if(integrate || reset){
+            kfusion.Integrate();
+            Stats.sample("integrate");
+            reset = false;
+        }
 
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
@@ -145,7 +144,7 @@ void keys(unsigned char key, int x, int y){
     switch(key){
     case 'c':
         kfusion.Reset();
-        kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+        kfusion.setPose(toMatrix4(initPose));
         reset = true;
         break;
     case 'q':
@@ -204,8 +203,6 @@ int main(int argc, char ** argv) {
 
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
-    atexit(exitFunc);
-
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
     glutInitWindowSize(config.renderSize().x * 2, config.renderSize().y * 2);
@@ -214,7 +211,8 @@ int main(int argc, char ** argv) {
     kfusion.Init(config);
     if(printCUDAError())
         exit(1);
-    kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+
+    kfusion.setPose(toMatrix4(initPose));
 
     lightScene.alloc(config.renderSize()), depth.alloc(config.renderSize()), lightModel.alloc(config.renderSize());
     depthImage.alloc(make_uint2(640, 480));
@@ -222,6 +220,7 @@ int main(int argc, char ** argv) {
     if(InitKinect(depthImage.data()))
         exit(1);
 
+    atexit(exitFunc);
     glutDisplayFunc(display);
     glutKeyboardFunc(keys);
     glutReshapeFunc(reshape);
