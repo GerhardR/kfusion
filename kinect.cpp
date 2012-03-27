@@ -1,6 +1,3 @@
-#undef isnan
-#undef isfinite
-
 #include "kfusion.h"
 #include "helpers.h"
 
@@ -8,12 +5,12 @@
 #include <sstream>
 #include <iomanip>
 
-#include <cvd/image_io.h>
-#include <cvd/colourspaces.h>
-#include <cvd/glwindow.h>
-#include <cvd/gl_helpers.h>
-#include <cvd/vision.h>
-#include <cvd/thread.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
+#include <GL/glut.h>
+#endif
+
 #include "perfstats.h"
 
 using namespace std;
@@ -25,15 +22,12 @@ freenect_context *f_ctx;
 freenect_device *f_dev;
 bool gotDepth;
 
-CVD::Image<uint16_t> depthImage(CVD::ImageRef(640,480));
-
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
-    depthImage.copy_from(CVD::BasicImage<uint16_t>((uint16_t*)v_depth, depthImage.size()));
     gotDepth = true;
 }
 
-int InitKinect(){
+int InitKinect( uint16_t * buffer ){
     if (freenect_init(&f_ctx, NULL) < 0) {
         cout << "freenect_init() failed" << endl;
         return 1;
@@ -52,10 +46,13 @@ int InitKinect(){
         cout << "Could not open device" << endl;
         return 1;
     }
-    
+
     freenect_set_depth_callback(f_dev, depth_cb);
     freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_11BIT));
+    freenect_set_depth_buffer(f_dev, buffer);
     freenect_start_depth(f_dev);
+
+    gotDepth = false;
 
     return 0;
 }
@@ -66,13 +63,112 @@ void CloseKinect(){
     freenect_shutdown(f_ctx);
 }
 
-CVD::Image<uint16_t> DepthFrameKinect() {
-    gotDepth = false;
+void DepthFrameKinect() {
     while (!gotDepth && freenect_process_events(f_ctx) >= 0){
-        CVD::Thread::sleep(0);
     }
-    
-    return depthImage;
+    gotDepth = false;
+}
+
+KFusion kfusion;
+Image<uchar4, HostDevice> lightScene, depth, lightModel;
+Image<uint16_t, HostDevice> depthImage;
+
+const float3 light = make_float3(1.0, -2, 1.0);
+const float3 ambient = make_float3(0.1, 0.1, 0.1);
+
+SE3<float> initPose;
+
+int counter = 0;
+bool reset = true;
+
+void display(void){
+    const uint2 imageSize = kfusion.configuration.renderSize();
+    static bool integrate = true;
+
+    glClear( GL_COLOR_BUFFER_BIT );
+    const double startFrame = Stats.start();
+
+    DepthFrameKinect();
+    const double startProcessing = Stats.sample("kinect");
+
+    kfusion.setKinectDeviceDepth(depthImage.getDeviceImage());
+    Stats.sample("raw to cooked");
+
+    integrate = kfusion.Track();
+    Stats.sample("track");
+
+        if(integrate || reset){
+            kfusion.Integrate();
+            Stats.sample("integrate");
+            reset = false;
+        }
+
+    renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
+    renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
+    renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
+    cudaDeviceSynchronize();
+
+    Stats.sample("render");
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glRasterPos2i(0,imageSize.y * 0);
+    glDrawPixels(lightScene);
+    glRasterPos2i(imageSize.x, imageSize.y * 0);
+    glDrawPixels(depth);
+    glRasterPos2i(0,imageSize.y * 1);
+    glDrawPixels(lightModel);
+    const double endProcessing = Stats.sample("draw");
+
+    Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
+    Stats.sample("total_proc", endProcessing - startProcessing, PerfStats::TIME);
+
+    if(printCUDAError())
+        exit(1);
+
+    ++counter;
+
+    if(counter % 50 == 0){
+        Stats.print();
+        Stats.reset();
+        cout << endl;
+    }
+
+    glutSwapBuffers();
+}
+
+void idle(void){
+    glutPostRedisplay();
+}
+
+void keys(unsigned char key, int x, int y){
+    switch(key){
+    case 'c':
+        kfusion.Reset();
+        kfusion.setPose(toMatrix4(initPose));
+        reset = true;
+        break;
+    case 'q':
+        exit(0);
+        break;
+    }
+}
+
+void reshape(int width, int height){
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glViewport(0, 0, width, height);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glColor3f(1.0f,1.0f,1.0f);
+    glRasterPos2f(-1, 1);
+    glOrtho(-0.375, width-0.375, height-0.375, -0.375, -1 , 1); //offsets to make (0,0) the top left pixel (rather than off the display)
+    glPixelZoom(1,-1);
+}
+
+void exitFunc(void){
+    CloseKinect();
+    kfusion.Clear();
+    cudaDeviceReset();
 }
 
 int main(int argc, char ** argv) {
@@ -80,7 +176,7 @@ int main(int argc, char ** argv) {
 
     KFusionConfig config;
 
-    // it is enough now to set the volume resolution once. 
+    // it is enough now to set the volume resolution once.
     // everything else is derived from that.
     // config.volumeSize = make_uint3(64);
     config.volumeSize = make_uint3(128);
@@ -88,146 +184,51 @@ int main(int argc, char ** argv) {
 	config.maxweight = 100.f; // default 100
 	config.fullFrame = true;
 
-#if 0
-    config.radius = (argc > 1 ) ? atoi(argv[1]) : 3;
-    config.delta = (argc > 2 ) ? atof(argv[2]) : 4.0f;
-    config.e_delta = (argc > 3 ) ? atof(argv[3]) : 0.1f;
-#endif
-  
     // these are physical dimensions in meters
     config.volumeDimensions = make_float3(size);
     config.nearPlane = 0.4f;
     config.farPlane = 5.0f;
     config.mu = 0.1;
-    
+    config.combinedTrackAndReduce = false;
+
     config.camera =  make_float4(297.12732, 296.24240, 169.89365, 121.25151);
-    
+
+    // config.iterations is a vector<int>, the length determines
+    // the number of levels to be used in tracking
+    // push back more then 3 iteraton numbers to get more levels.
     config.iterations[0] = 10;
     config.iterations[1] = 5;
     config.iterations[2] = 4;
-    
+
     config.dist_threshold = (argc > 2 ) ? atof(argv[2]) : config.dist_threshold;
     config.normal_threshold = (argc > 3 ) ? atof(argv[3]) : config.normal_threshold;
-    
-    KFusion kfusion;
+
+    initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
+
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
+    glutInitWindowSize(config.renderSize().x * 2, config.renderSize().y * 2);
+    glutCreateWindow("kfusion");
+
     kfusion.Init(config);
-    
-    if(printCUDAError()){
-        kfusion.Clear();
-        cudaDeviceReset();
-        return 1;
-    }
-    
-    const CVD::ImageRef imageSize(config.renderSize().x, config.renderSize().y);
-    
-    CVD::GLWindow window(imageSize.dot_times(CVD::ImageRef(2,2)));
-    CVD::GLWindow::EventSummary events;
-    glDisable(GL_DEPTH_TEST);
+    if(printCUDAError())
+        exit(1);
 
-    CVD::Image<CVD::Rgb<CVD::byte> > lightScene(imageSize), depth(imageSize), lightModel(imageSize);
-    
-    const float3 light = make_float3(1.0, -2, 1.0);
-    const float3 ambient = make_float3(0.1, 0.1, 0.1);
-    const float4 renderCamera = make_float4(297.12732, 296.24240, 169.89365+160, 121.25151);
+    kfusion.setPose(toMatrix4(initPose));
 
-    SE3<float> initPose(makeVector(size/2, size/2, -0.5, 0, 0, 0));
+    lightScene.alloc(config.renderSize()), depth.alloc(config.renderSize()), lightModel.alloc(config.renderSize());
+    depthImage.alloc(make_uint2(640, 480));
 
-    kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
+    if(InitKinect(depthImage.data()))
+        exit(1);
 
-    if(InitKinect())
-        return 1;
+    atexit(exitFunc);
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keys);
+    glutReshapeFunc(reshape);
+    glutIdleFunc(idle);
 
-    bool integrate = true;
-    bool reset = true;
-    bool handTrack = false;
+    glutMainLoop();
 
-    int counter = 0;
-    while(!events.should_quit()){
-        glClear( GL_COLOR_BUFFER_BIT );
-        Stats.start();
-        ++counter;
-
-        CVD::Image<uint16_t> img = DepthFrameKinect();
-        const double startProcessing = Stats.sample("kinect");
-
-        kfusion.setKinectDepth(img.data());
-        Stats.sample("raw to cooked");
-
-        integrate = kfusion.Track();
-        Stats.sample("track");
-        
-        if(!handTrack){
-            if(integrate || reset){
-                kfusion.Integrate();
-                Stats.sample("integrate");
-                reset = false;
-            }
-        } else {
-            kfusion.FilterRawDepth();
-            kfusion.IntegrateHand();
-            Stats.sample("hand integrate");
-        }
-
-        if(handTrack){
-            renderVolumeLight(lightScene.data(), config.renderSize(), kfusion.hand, kfusion.pose * getInverseCameraMatrix(config.camera), 0.4f, 5.0f, kfusion.configuration.mu * 0.7, light, ambient );
-            glRasterPos2i(imageSize.x, imageSize.y * 1);
-            glDrawPixels(lightScene);
-            Stats.sample("hand render");
-        }
-
-        renderLight( lightModel.data(), kfusion.vertex, kfusion.normal, light, ambient);
-        renderLight( lightScene.data(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
-        renderTrackResult( depth.data(), kfusion.reduction );
-        Stats.sample("render");
-
-        glRasterPos2i(0,imageSize.y * 0);
-        glDrawPixels(lightScene);
-        glRasterPos2i(imageSize.x, imageSize.y * 0);
-        glDrawPixels(depth);
-        glRasterPos2i(0,imageSize.y * 1);
-        glDrawPixels(lightModel);
-        Stats.sample("draw");
-        
-        window.swap_buffers();
-        events.clear();
-        window.get_events(events);
-
-        if(events.key_up.count('p')){
-            CVD::Image<CVD::Rgb<CVD::byte> > screen(window.size());
-            glReadPixels(screen);
-            flipVertical(screen);
-            img_save(screen, "kinect_screen.jpg");
-        }
-        if(events.key_up.count('c')){
-            kfusion.Reset();
-            kfusion.setPose(toMatrix4(initPose), toMatrix4(initPose.inverse()));
-            reset = true;
-            handTrack = false;
-        }        
-        if(events.key_up.count('v')){
-            CVD::Image<float> vol = getVolume(kfusion.integration);
-            ostringstream sout;
-            sout << "volume_" << setw(3) << setfill('0') << counter << ".jpg";
-            img_save(vol, sout.str());
-        }
-        if(events.key_up.count('h')){
-            handTrack = !handTrack;
-        }
-        const double endProcessing = Stats.sample("events");
-        
-        Stats.sample("total", endProcessing - startProcessing, PerfStats::TIME);
-        if(counter % 50 == 0){
-            Stats.print();
-            Stats.reset();
-            cout << endl;
-        }
-        
-        if(printCUDAError())
-            break;
-    }
-    
-    CloseKinect();
-    kfusion.Clear();
-    cudaDeviceReset();
     return 0;
 }

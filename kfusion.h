@@ -2,15 +2,13 @@
 #define KFUSION_H
 
 #include <iostream>
+#include <vector>
 
 #include <vector_types.h>
 #include <vector_functions.h>
-#include "cutil_math.h"
+#include <cuda_gl_interop.h> // includes cuda_gl_interop.h
 
-// undefine this on 2.x devices 
-// 1.x devices don't have 3D grids, therefore we compute 3D mapping to 2D here, 
-// based on the idea that slices are layed out in x direction as blocks
-#define USE_PLANAR_3D 1
+#include "cutil_math.h"
 
 inline int divup(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 inline dim3 divup( uint2 a, dim3 b) { return dim3(divup(a.x, b.x), divup(a.y, b.y)); }
@@ -23,57 +21,57 @@ struct KFusionConfig {
     bool fullFrame;             // operate on 640x480 input downscale to 320x240 input
     bool combinedTrackAndReduce;// combine tracking and calculating linear system in one
                                 // this saves some time in tracking, but there is no per pixel output anymore
-    
+
     float4 camera;              // camera configuration parameters
     float nearPlane, farPlane;  // values for raycasting in meters
     float mu;                   // width of linear ramp, left and right of 0 in meters
     float maxweight;            // maximal weight for volume integration, controls speed of updates
-    
+
     int radius;                 // bilateral filter radius
     float delta;                // gaussian delta
     float e_delta;              // euclidean delta
-    
+
     float dist_threshold;       // 3D distance threshold for ICP correspondences
     float normal_threshold;     // dot product normal threshold for ICP correspondences
-    int iterations[3];          // max number of iterations per level
-    
+    std::vector<int> iterations;  // max number of iterations per level
+
     dim3 imageBlock;            // block size for image operations
     dim3 raycastBlock;          // block size for raycasting
-    
+
     KFusionConfig(){
         volumeSize = make_uint3(64);
         volumeDimensions = make_float3(1.f);
-        
+
         fullFrame = false;
         combinedTrackAndReduce = false;
-        
+
         nearPlane = 0.4f;
         farPlane = 4.0f;
         mu = 0.1f;
         maxweight = 100.0f;
-        
+
         radius = 2;
         delta = 4.0f;
         e_delta = 0.1f;
-        
-        dist_threshold = 0.2f;
-        normal_threshold = 0.7f;
-        iterations[0] = 5;
-        iterations[1] = 5;
-        iterations[2] = 5;
-        
-        imageBlock = dim3(20,20);
-        raycastBlock = dim3(16,16);
+
+        dist_threshold = 0.1f;
+        normal_threshold = 0.8f;
+        iterations.push_back( 5 );
+        iterations.push_back( 5 );
+        iterations.push_back( 5 );
+
+        imageBlock = dim3(32,16);
+        raycastBlock = dim3(32,8);
     }
-    
-    float stepSize() const {  return 0.5f * min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
+
+    float stepSize() const {  return min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
     uint2 renderSize() const { return fullFrame ? make_uint2(640,480) : make_uint2(320,240); } // image resolution for rendering
 
 };
 
 struct Matrix4 {
     float4 data[4];
-    
+
     inline __host__ __device__ float3 get_translation() const {
         return make_float3(data[0].w, data[1].w, data[2].w);
     }
@@ -85,26 +83,8 @@ inline std::ostream & operator<<( std::ostream & out, const Matrix4 & m ){
     return out;
 }
 
-inline Matrix4 transpose( const Matrix4 & A ){
-    Matrix4 T;
-    T.data[0] = make_float4(A.data[0].x, A.data[1].x, A.data[2].x, A.data[3].x);
-    T.data[1] = make_float4(A.data[0].y, A.data[1].y, A.data[2].y, A.data[3].y);
-    T.data[2] = make_float4(A.data[0].z, A.data[1].z, A.data[2].z, A.data[3].z);
-    T.data[3] = make_float4(A.data[0].w, A.data[1].w, A.data[2].w, A.data[3].w);
-    return T;
-}
-
-inline Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
-    const Matrix4 T = transpose(B);
-    Matrix4 C;
-    for(uint r = 0; r < 4; ++r){
-        C.data[r] = make_float4(dot(A.data[r], T.data[0]), 
-                                dot(A.data[r], T.data[1]),
-                                dot(A.data[r], T.data[2]),
-                                dot(A.data[r], T.data[3]));
-    }
-    return C;
-}
+Matrix4 operator*( const Matrix4 & A, const Matrix4 & B);
+Matrix4 inverse( const Matrix4 & A );
 
 inline __host__ __device__ float3 operator*( const Matrix4 & M, const float3 & v){
     return make_float3(
@@ -136,51 +116,11 @@ inline Matrix4 getInverseCameraMatrix( const float4 & k ){
     invK.data[2] = make_float4(0, 0, 1, 0);
     invK.data[3] = make_float4(0, 0, 0, 1);
     return invK;
-} 
-
-inline void computeVolumeConfiguration( dim3 & grid, dim3 & block, const uint3 size ){
-#ifdef USE_PLANAR_3D
-    if(size.z <= 64){
-        block = dim3(2,2,size.z);
-        grid = dim3(size.x/2, size.y/2, 1);
-    } else {
-        block = dim3(8,8,8);
-        grid = dim3(size.x/8 * size.z/8, size.y/8, 1);
-    }
-#else
-    block = dim3(8,8,8);
-    grid = dim3(divup(size.x,8), divup(size.y,8), divup(size.z,8));
-#endif
-}
-
-inline __device__ uint3 thr2pos3(){
-#ifdef __CUDACC__
-#ifdef USE_PLANAR_3D     // 1.x devices don't have 3D grids, therefore we
-                         // compute 3D mapping to 2D here, based on the idea 
-                         // that slices are layed out in x direction as blocks
-
-    const uint size = __umul24(gridDim.y, blockDim.y); // this is what we are looking for
-    const uint total_x = __umul24(blockDim.x, blockIdx.x) + threadIdx.x;
-    const uint x = total_x % size;
-    const uint y = __umul24(blockDim.y, blockIdx.y) + threadIdx.y;
-    
-    const uint z_layer = total_x / size;
-    const uint z = __umul24(z_layer, __umul24(gridDim.z, blockDim.z)) + __umul24(blockDim.z, blockIdx.z) + threadIdx.z;
-    
-    return make_uint3(x, y, z);
-#else
-    return make_uint3( __umul24(blockDim.x, blockIdx.x) + threadIdx.x, 
-                       __umul24(blockDim.y, blockIdx.y) + threadIdx.y, 
-                       __umul24(blockDim.z, blockIdx.z) + threadIdx.z);
-#endif
-#else
-    return make_uint3(0);
-#endif
 }
 
 inline __device__ uint2 thr2pos2(){
 #ifdef __CUDACC__
-    return make_uint2( __umul24(blockDim.x, blockIdx.x) + threadIdx.x, 
+    return make_uint2( __umul24(blockDim.x, blockIdx.x) + threadIdx.x,
                        __umul24(blockDim.y, blockIdx.y) + threadIdx.y);
 #else
     return make_uint2(0);
@@ -199,12 +139,8 @@ struct Volume {
     uint3 size;
     float3 dim;
     short2 * data;
-    
-    Volume() { size = make_uint3(0); dim = make_float3(1); data = NULL; }
 
-    __device__ float2 el() const {
-        return operator[](thr2pos3());
-    }
+    Volume() { size = make_uint3(0); dim = make_float3(1); data = NULL; }
 
     __device__ float2 operator[]( const uint3 & pos ) const {
         return toFloat(data[pos.x + pos.y * size.x + pos.z * size.x * size.y]);
@@ -214,27 +150,19 @@ struct Volume {
         return operator[](pos).x;
     }
 
-    __device__ float w(const uint3 & pos) const {
-        return operator[](pos).y;
-    }
-
     __device__ void set(const uint3 & pos, const float2 & d ){
         data[pos.x + pos.y * size.x + pos.z * size.x * size.y] = fromFloat(d);
     }
 
-    __device__ void set(const float2 d){
-        set(thr2pos3(), d);
-    }
-
-    __device__ float3 pos( const uint3 p = thr2pos3() ) const {
+    __device__ float3 pos( const uint3 & p ) const {
         return make_float3((p.x + 0.5f) * dim.x / size.x, (p.y + 0.5f) * dim.y / size.y, (p.z + 0.5f) * dim.z / size.z);
     }
 
     __device__ float interp( const float3 & pos ) const {
 #if 0   // only for testing without linear interpolation
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) , (pos.y * size.y / dim.y) , (pos.z * size.z / dim.z) );
-        return operator[](make_uint3(clamp(make_int3(scaled_pos), make_int3(0), make_int3(size) - make_int3(1))));
-        
+        return v(make_uint3(clamp(make_int3(scaled_pos), make_int3(0), make_int3(size) - make_int3(1))));
+
 #else
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) - 0.5f, (pos.y * size.y / dim.y) - 0.5f, (pos.z * size.z / dim.z) - 0.5f);
         const int3 base = make_int3(floorf(scaled_pos));
@@ -251,7 +179,7 @@ struct Volume {
             + v(make_uint3(upper.x, upper.y, upper.z)) * factor.x * factor.y * factor.z;
 #endif
     }
-    
+
     __device__ float3 grad( const float3 & pos ) const {
         const float3 scaled_pos = make_float3((pos.x * size.x / dim.x) - 0.5f, (pos.y * size.y / dim.y) - 0.5f, (pos.z * size.z / dim.z) - 0.5f);
         const int3 base = make_int3(floorf(scaled_pos));
@@ -297,59 +225,220 @@ struct Volume {
 
         return gradient * make_float3(dim.x/size.x, dim.y/size.y, dim.z/size.z) * 0.5f;
     }
-    
+
     void init(uint3 s, float3 d){
-        size = s; 
+        size = s;
         dim = d;
         cudaMalloc(&data, size.x * size.y * size.z * sizeof(short2));
     }
-    
+
     void release(){
         cudaFree(data);
         data = NULL;
     }
+};
 
-    void get( void * target ) const {
-        cudaMemcpy(target, data, size.x * size.y * size.y * sizeof(short2), cudaMemcpyDeviceToHost);
+struct Ref {
+    Ref( void * d = NULL) : data(d) {}
+    void * data;
+};
+
+struct Host {
+    Host() : data(NULL) {}
+    ~Host() { cudaFreeHost( data ); }
+
+    void alloc( uint size ) { cudaHostAlloc( &data, size, cudaHostAllocDefault); }
+    void * data;
+};
+
+struct Device {
+    Device() : data(NULL) {}
+    ~Device() { cudaFree( data ); }
+
+    void alloc( uint size ) { cudaMalloc( &data, size ); }
+    void * data;
+};
+
+struct HostDevice {
+    HostDevice() : data(NULL) {}
+    ~HostDevice() { cudaFreeHost( data ); }
+
+    void alloc( uint size ) { cudaHostAlloc( &data, size,  cudaHostAllocMapped ); }
+    void * getDevice() const {
+        void * devicePtr;
+        cudaHostGetDevicePointer(&devicePtr, data, 0);
+        return devicePtr;
+    }
+    void * data;
+};
+
+struct PBO {
+    PBO() : data(NULL), pbo(NULL), id(0) {}
+    ~PBO() {
+        cudaGraphicsUnregisterResource(pbo);
+        glDeleteBuffers(1, &id);
+    }
+
+    void alloc( uint size ) {
+        glGenBuffers( 1, &id );
+        glBindBuffer( GL_PIXEL_UNPACK_BUFFER, id );
+        glBufferData( GL_PIXEL_UNPACK_BUFFER, size, NULL, GL_STREAM_DRAW );
+        cudaGraphicsGLRegisterBuffer(&pbo, id, cudaGraphicsMapFlagsWriteDiscard);
+    }
+
+    void map(){
+        size_t num_bytes;
+        cudaGraphicsMapResources(1, &pbo, 0);
+        cudaGraphicsResourceGetMappedPointer(&data, &num_bytes, pbo);
+    }
+
+    void unmap(){
+        cudaGraphicsUnmapResources(1, &pbo, 0);
+        data = NULL;
+    }
+
+    void * data;
+    struct cudaGraphicsResource *pbo;
+    GLuint id;
+};
+
+template <typename OTHER>
+inline void image_copy( Ref & to, const OTHER & from, uint size ){
+    to.data = from.data;
+}
+
+inline void image_copy( Host & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( Host & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToHost);
+}
+
+inline void image_copy( Host & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( Device & to, const Ref & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToDevice);
+}
+
+inline void image_copy( Device & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.getDevice(), size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( Device & to, const PBO & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( HostDevice & to, const Host & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( HostDevice & to, const Device & from, uint size ){
+    cudaMemcpy(to.getDevice(), from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+inline void image_copy( HostDevice & to, const HostDevice & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
+}
+
+inline void image_copy( PBO & to, const Device & from, uint size ){
+    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
+}
+
+template <typename T, typename Allocator = Ref>
+struct Image : public Allocator {
+    typedef T PIXEL_TYPE;
+    uint2 size;
+
+    Image() : Allocator() { size = make_uint2(0);  }
+    Image( const uint2 & s ) { alloc(s); }
+
+    void alloc( const uint2 & s ){
+        if(s.x == size.x && s.y == size.y)
+            return;
+        Allocator::alloc( s.x * s.y * sizeof(T) );
+        size = s;
+    }
+
+    __device__ T & el(){
+        return operator[](thr2pos2());
+    }
+
+    __device__ const T & el() const {
+        return operator[](thr2pos2());
+    }
+
+    __device__ T & operator[](const uint2 & pos ){
+        return static_cast<T *>(Allocator::data)[pos.x + size.x * pos.y];
+    }
+
+    __device__ const T & operator[](const uint2 & pos ) const {
+        return static_cast<const T *>(Allocator::data)[pos.x + size.x * pos.y];
+    }
+
+    Image<T> getDeviceImage() {
+        return Image<T>(size, Allocator::getDevice());
+    }
+
+    operator Image<T>() {
+        return Image<T>(size, Allocator::data);
+    }
+
+    template <typename A1>
+    Image<T, Allocator> & operator=( const Image<T, A1> & other ){
+        image_copy(*this, other, size.x * size.y * sizeof(T));
+        return *this;
+    }
+
+    T * data() {
+        return static_cast<T *>(Allocator::data);
+    }
+
+    const T * data() const {
+        return static_cast<const T *>(Allocator::data);
     }
 };
 
 template <typename T>
-struct Image {
+struct Image<T, Ref> : public Ref {
     typedef T PIXEL_TYPE;
     uint2 size;
-    T * data;
-    
-    Image() { size = make_uint2(0); data = NULL; }
-    
+
+    Image() { size = make_uint2(0,0); }
+    Image( const uint2 & s, void * d ) : Ref(d), size(s) {}
+
     __device__ T & el(){
         return operator[](thr2pos2());
     }
-    
+
     __device__ const T & el() const {
         return operator[](thr2pos2());
     }
-    
+
     __device__ T & operator[](const uint2 & pos ){
-        return data[pos.x + size.x * pos.y];
+        return static_cast<T *>(Ref::data)[pos.x + size.x * pos.y];
     }
 
     __device__ const T & operator[](const uint2 & pos ) const {
-        return data[pos.x + size.x * pos.y];
-    }
-    
-    void init( uint2 s ){
-        size = s;
-        cudaMalloc(&data, size.x * size.y * sizeof(T));
-    }
-    
-    void release(){
-        cudaFree(data);
-        data = NULL;
+        return static_cast<const T *>(Ref::data)[pos.x + size.x * pos.y];
     }
 
-    void get( void * target ) const {
-        cudaMemcpy(target, data, size.x * size.y * sizeof(T), cudaMemcpyDeviceToHost);
+    T * data() {
+        return static_cast<T *>(Ref::data);
+    }
+
+    const T * data() const {
+        return static_cast<const T *>(Ref::data);
     }
 };
 
@@ -360,38 +449,43 @@ struct TrackData {
 };
 
 struct KFusion {
-    Volume integration, hand;
-    Image<TrackData> reduction;
-    Image<float3> vertex, normal, inputVertex[3], inputNormal[3];
-    Image<float> depth, inputDepth[3];
-    
-    Image<float> rawDepth;
-    Image<ushort> rawKinectDepth;
-    Image<float> output;
-    
-    Image<float> gaussian;
-    
+    Volume integration;
+    Image<TrackData, Device> reduction;
+    Image<float3, Device> vertex, normal;
+    Image<float, Device> depth;
+
+    std::vector<Image<float3, Device> > inputVertex, inputNormal;
+    std::vector<Image<float, Device> > inputDepth;
+
+    Image<float, Device> rawDepth;
+    Image<ushort, Device> rawKinectDepth;
+    Image<float, HostDevice> output;
+
+    Image<float, Device> gaussian;
+
     KFusionConfig configuration;
 
-    Matrix4 pose, invPose;
+    Matrix4 pose;
 
     void Init( const KFusionConfig & config ); // allocates the volume and image data on the device
     void Clear();  // releases the allocated device memory
 
-    void setPose( const Matrix4 & p, const Matrix4 & invP ); // sets the current pose of the camera
+    void setPose( const Matrix4 & p ); // sets the current pose of the camera
 
     // high level API to run a simple tracking - reconstruction loop
     void Reset(); // removes all reconstruction information
 
     void setKinectDepth( ushort * ); // passes in raw 11-bit kinect data as an array of ushort
-    void setDeviceDepth( float * ); // passes in a metric depth buffer as float array residing in device memory 
-    void setHostDepth( float * ); // passes in  a metric depth buffer as float array residing in host memory
+
+    template<typename A>
+    void setDepth( const Image<float, A> & depth  ){ // passes in a metric depth buffer as float array
+        rawDepth = depth;
+    }
+
+    void setKinectDeviceDepth( const Image<uint16_t> & );
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose
-    void IntegrateHand();
-    
-    void FilterRawDepth();
 };
 
 int printCUDAError(); // print the last error
@@ -399,7 +493,7 @@ int printCUDAError(); // print the last error
 // low level API without any state. These are the kernel functions
 
 __global__ void initVolume( Volume volume, const float2 val );
-__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float near, const float far, const float step, const float largestep);
+__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
 __global__ void integrate( Volume vol, Volume weight, const Image<float> depth, const Matrix4 view, const float mu, const float maxweight);
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK );
 __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex );

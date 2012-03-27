@@ -5,47 +5,195 @@
 #include <sstream>
 #include <iomanip>
 
-#include <cvd/image_io.h>
-#include <cvd/colourspaces.h>
-#include <cvd/glwindow.h>
-#include <cvd/gl_helpers.h>
-#include <cvd/vision.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
+#include <GL/glut.h>
+#endif
+
+using namespace TooN;
+using namespace std;
+
 #include "perfstats.h"
 
-CVD::cvd_timer timer;
+SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
+SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
+SE3<float> trans(makeVector(0.5, 0.5, 0.5, 0, 0, 0));
 
-using namespace std;
-using namespace TooN;
+KFusion kfusion;
+Volume reference;
+Image<float3, HostDevice> vertex, normal;
+Image<float, HostDevice> depth;
+Image<uchar4, HostDevice> rgb;
 
+int counter = 0;
+bool benchmark = false;
+
+void display(void) {
+
+    static bool integrate = true;
+
+    const uint2 imageSize = kfusion.configuration.renderSize();
+
+    const double start = Stats.start();
+    raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), reference, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.01 );
+    cudaDeviceSynchronize();
+    Stats.sample("ground raycast");
+    Stats.sample("ground copy");
+
+    glRasterPos2i(0,0);
+    glDrawPixels(vertex);
+    glRasterPos2i(imageSize.x, 0);
+    glDrawPixels(normal);
+    glRasterPos2i(imageSize.x * 2, 0);
+    glDrawPixels(depth);
+    Stats.sample("ground draw");
+
+    kfusion.setDepth( depth.getDeviceImage() );
+    cudaDeviceSynchronize();
+    const double track_start = Stats.sample("process depth");
+
+    if(counter > 1){
+        integrate = kfusion.Track();
+        cudaDeviceSynchronize();
+        Stats.sample("track");
+    }
+
+    vertex = kfusion.vertex;
+    normal = kfusion.normal;
+    Stats.sample("track get");
+
+    renderTrackResult(rgb.getDeviceImage(), kfusion.reduction);
+    cudaDeviceSynchronize();
+    Stats.sample("track render");
+    Stats.sample("track copy");
+
+    glRasterPos2i(0,imageSize.y * 1);
+    glDrawPixels(vertex);
+    glRasterPos2i(imageSize.x, imageSize.y * 1);
+    glDrawPixels(normal);
+    glRasterPos2i(2 * imageSize.x, imageSize.y * 1);
+    glDrawPixels(rgb);
+    Stats.sample("track draw");
+
+    if(integrate){
+        kfusion.Integrate();
+        cudaDeviceSynchronize();
+        Stats.sample("integration");
+    }
+    Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
+
+    raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.7 * kfusion.configuration.mu );
+    cudaDeviceSynchronize();
+    Stats.sample("view raycast");
+    Stats.sample("view copy");
+
+    glRasterPos2i(0,imageSize.y * 2);
+    glDrawPixels(vertex);
+    glRasterPos2i(imageSize.x, imageSize.y * 2);
+    glDrawPixels(normal);
+    glRasterPos2i(imageSize.x * 2, imageSize.y * 2);
+    glDrawPixels(depth);
+    Stats.sample("view draw");
+
+    Stats.sample("events");
+    Stats.sample("total all", Stats.get_time() - start, PerfStats::TIME);
+
+    if(counter % 30 == 0){
+        Stats.print();
+        Stats.reset();
+        cout << endl;
+    }
+
+    ++counter;
+
+    printCUDAError();
+
+    glutSwapBuffers();
+}
+
+void keys(unsigned char key, int x, int y) {
+    switch(key){
+    case 'r':
+        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+        break;
+    case 'c':
+        kfusion.Reset();
+        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+        break;
+    case 'd':
+        cout << kfusion.pose << endl;
+        break;
+    case 'q':
+        exit(0);
+        break;
+    }
+    glutPostRedisplay();
+}
+
+void specials(int key, int x, int y){
+    switch(key){
+    case GLUT_KEY_LEFT:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, 0, 0.1, 0));
+        break;
+    case GLUT_KEY_RIGHT:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, 0, -0.1, 0));
+        break;
+    case GLUT_KEY_UP:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, -0.1, 0, 0));
+        break;
+    case GLUT_KEY_DOWN:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, 0.1, 0, 0));
+        break;
+    }
+    glutPostRedisplay();
+}
+
+void idle(void) {
+    if(counter > 100 && benchmark)
+        exit(0);
+
+    if(benchmark)
+        rot *= SE3<float>(makeVector(0.0, 0, 0, 0, 0.02, 0));
+
+    glutPostRedisplay();
+}
+
+void reshape(int width, int height){
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glViewport(0, 0, width, height);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glColor3f(1.0f,1.0f,1.0f);
+    glRasterPos2f(-1, 1);
+    glOrtho(-0.375, width-0.375, height-0.375, -0.375, -1 , 1); //offsets to make (0,0) the top left pixel (rather than off the display)
+    glPixelZoom(1,-1);
+}
 
 int main(int argc, char ** argv) {
 
-    const bool benchmark = argc > 1 && string(argv[1]) == "-b";
+    benchmark = argc > 1 && string(argv[1]) == "-b";
 
     KFusionConfig config;
-    config.nearPlane = 0.001;
-#if 1
     config.volumeSize = make_uint3(128);
-#endif
+
+    config.combinedTrackAndReduce = false;
 
     config.iterations[0] = 10;
     config.iterations[1] = 5;
     config.iterations[2] = 5;
-    config.maxweight = 100;
-    
-    config.imageBlock = dim3(20,20);
 
     config.camera = make_float4(100, 100, 160, 120);
+    config.nearPlane = 0.001;
 
+    config.maxweight = 100;
     config.mu = 0.1;
 
     config.dist_threshold = 0.2f;
     config.normal_threshold = 0.8f;
 
-    KFusion kfusion;
     kfusion.Init(config);
-    
-    Volume reference;
     reference.init(config.volumeSize, config.volumeDimensions);
 
     initVolumeWrap(reference, 1.0f);
@@ -53,181 +201,26 @@ int main(int argc, char ** argv) {
     setBoxWrap(reference, make_float3(0.1f,0.8f,0.1f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setBoxWrap(reference, make_float3(0.8f,0.1f,0.1f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setSphereWrap(reference, make_float3(0.5f), 0.2f, -1.0f);
-    
-    Image<float> depth;
-    Image<float3> vertex, normal;
-    
-    depth.init(config.renderSize());
-    vertex.init(config.renderSize());
-    normal.init(config.renderSize());
 
-    if(printCUDAError()){
-        kfusion.Clear();
-        reference.release();
-        vertex.release();
-        normal.release();
-        depth.release();
-        return 1;
-    }
+    kfusion.setPose( toMatrix4( trans * rot * preTrans ));
 
-    SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
-    SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
-    SE3<float> trans(makeVector(0.5, 0.5, 0.5, 0, 0, 0));
+    vertex.alloc(config.renderSize());
+    normal.alloc(config.renderSize());
+    depth.alloc(config.renderSize());
+    rgb.alloc(config.renderSize());
 
-    kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
+    glutInitWindowSize(config.renderSize().x * 3, config.renderSize().y * 3);
+    glutCreateWindow("kfusion test");
 
-    SE3<float> mapRot(makeVector(0.0, 0, 0, 0, 0, 0));
-    SE3<float> mapTrans(makeVector(0.5, 0.5, 0, 0, 0, 0));
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keys);
+    glutSpecialFunc(specials);
+    glutReshapeFunc(reshape);
+    glutIdleFunc(idle);
 
-    const CVD::ImageRef imageSize(config.renderSize().x, config.renderSize().y);
-    
-    CVD::Image<CVD::Rgb<float> > vertexImage(imageSize), normalImage(imageSize);
-    CVD::Image<float> depthImage(imageSize);
-    
-    CVD::Image<CVD::Rgb<CVD::byte> > rgb(imageSize);
-    
-    CVD::GLWindow window(imageSize.dot_times(CVD::ImageRef(3,3)));
-    CVD::GLWindow::EventSummary events;
-    glDisable(GL_DEPTH_TEST);
-    
-    int counter = 0;
-    bool integrate = true;
-    
-    while(!events.should_quit() && ( counter < 100 || !benchmark)){
-        ++ counter;
+    glutMainLoop();
 
-        if(events.key_up.count('j'))
-            rot *= SE3<float>(makeVector(0.0, 0, 0, 0, 0.1, 0));
-        if(events.key_up.count('l'))
-            rot *= SE3<float>(makeVector(0.0, 0, 0, 0, -0.1, 0));
-        if(events.key_up.count('i'))
-            rot *= SE3<float>(makeVector(0.0, 0, 0, -0.1, 0, 0));
-        if(events.key_up.count('k'))
-            rot *= SE3<float>(makeVector(0.0, 0, 0, 0.1, 0, 0));
-
-        if(benchmark)
-            rot *= SE3<float>(makeVector(0.0, 0, 0, 0, 0.02, 0));
-
-        const double start = Stats.start();
-        raycastWrap(vertex, normal, depth, reference,  toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(config.camera), config.nearPlane, config.farPlane, config.stepSize(), 0.01 );
-        cudaDeviceSynchronize();
-        Stats.sample("raycast ground");
-
-        vertex.get(vertexImage.data());
-        normal.get(normalImage.data());
-        depth.get(depthImage.data());
-        cudaDeviceSynchronize();
-        Stats.sample("get ground");
-
-        glRasterPos2i(0,0);
-        glDrawPixels(vertexImage);
-        glRasterPos2i(imageSize.x, 0);
-        glDrawPixels(normalImage);
-        glRasterPos2i(imageSize.x * 2, 0);
-        glDrawPixels(depthImage);
-        Stats.sample("draw ground");
-
-        kfusion.setDeviceDepth( depth.data );
-        cudaDeviceSynchronize();
-        const double track_start = Stats.sample("process depth");
-
-        if(counter > 1){
-            integrate = kfusion.Track();
-            cudaDeviceSynchronize();
-            Stats.sample("track");
-        }
-
-        kfusion.vertex.get(vertexImage.data());
-        kfusion.normal.get(normalImage.data());
-        renderTrackResult(rgb.data(), kfusion.reduction);
-        cudaDeviceSynchronize();
-        Stats.sample("render track");
-
-        glRasterPos2i(0,imageSize.y * 1);
-        glDrawPixels(vertexImage);
-        glRasterPos2i(imageSize.x, imageSize.y * 1);
-        glDrawPixels(normalImage);
-        glRasterPos2i(2 * imageSize.x, imageSize.y * 1);
-        glDrawPixels(rgb);
-        Stats.sample("draw track");
-
-        if(integrate){
-            kfusion.Integrate();
-            cudaDeviceSynchronize();
-            Stats.sample("integration");
-        }
-
-        raycastWrap(vertex, normal, depth, kfusion.integration,  kfusion.pose * getInverseCameraMatrix(config.camera), config.nearPlane, config.farPlane, config.stepSize(), 0.5 * config.mu );
-        cudaDeviceSynchronize();
-        Stats.sample("raycast view");
-        
-        vertex.get(vertexImage.data());
-        normal.get(normalImage.data());
-        depth.get(depthImage.data());
-        cudaDeviceSynchronize();
-        Stats.sample("get view");
-        
-        glRasterPos2i(0,imageSize.y * 2);
-        glDrawPixels(vertexImage);
-        glRasterPos2i(imageSize.x, imageSize.y * 2);
-        glDrawPixels(normalImage);
-        glRasterPos2i(imageSize.x * 2, imageSize.y * 2);
-        glDrawPixels(depthImage);
-        Stats.sample("draw view");
-        
-        window.swap_buffers();
-        events.clear();
-        window.get_events(events);
-
-        if(events.key_up.count('p')){
-            CVD::Image<CVD::Rgb<CVD::byte> > screen(window.size());
-            glReadPixels(screen);
-            flipVertical(screen);
-            img_save(screen, "screen.jpg");
-        }
-        if(events.key_up.count('r')){
-            kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
-        }
-        if(events.key_up.count('c')){
-            kfusion.Reset();
-            kfusion.setPose( toMatrix4( trans * rot * preTrans ), toMatrix4( (trans * rot * preTrans).inverse() ));
-        }
-        if(events.key_up.count('v')){
-            CVD::Image<float> vol = getVolume(kfusion.integration);
-            ostringstream sout;
-            sout << "volume_" << setw(3) << setfill('0') << counter << ".jpg";
-            img_save(vol, sout.str());
-            sout.str("");
-            vol = getVolume(reference);
-            sout << "reference_" << setw(3) << setfill('0') << counter << ".jpg";
-            img_save(vol, sout.str());
-        }
-        if(events.key_up.count('d')){
-            cout << kfusion.pose << endl;
-        }
-        Stats.sample("events");
-        Stats.sample("total track", timer.get_time() - track_start, PerfStats::TIME);
-        Stats.sample("total all", timer.get_time() - start, PerfStats::TIME);
-#if 0
-       while(events.key_up.empty()){
-          window.get_events(events); 
-       }
-#endif
-        if(counter % 30 == 0){
-            Stats.print();
-            Stats.reset();
-            cout << endl;
-        }
-        
-       printCUDAError();
-    }
-
-    kfusion.Clear();
-    reference.release();
-    vertex.release();
-    normal.release();
-    depth.release();
-    
-    cudaDeviceReset();
     return 0;
 }

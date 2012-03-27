@@ -4,26 +4,15 @@ project(kfusion)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-add_subdirectory(dep/TooN)
-add_subdirectory(dep/libcvd)
+include_directories(dep)
 
-include_directories(
-	${CMAKE_BINARY_DIR}/include
-	dep/libcvd
-	)
-
-set(ext_libs)
-
-find_package(CUDA)
+find_package(CUDA REQUIRED)
 find_package(Freenect)
 find_package(OpenGL)
 find_package(X11)
+find_package(GLUT)
 
-if(X11_FOUND)
-	set(ext_libs ${X11_LIBRARIES})
-endif()
-
-if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
+if(OPENGL_FOUND)
 	
 	include_directories(${FREENECT_INCLUDE_PATHS} ${OPENGL_INCLUDE_DIRS})
 
@@ -43,20 +32,23 @@ if(CUDA_FOUND AND FREENECT_FOUND AND OPENGL_FOUND)
 		)
 		
 	target_link_libraries(kfusion 
-		cvd ${ext_libs} ${FREENECT_LIBRARIES} ${OPENGL_LIBRARIES}
-		)
-	
-	add_executable(kfusion_kinect
-		kinect.cpp
+		${OPENGL_LIBRARIES}
 		)
 
-	target_link_libraries(kfusion_kinect kfusion) 
-
-	add_executable(kfusion_test
-		test.cpp
-		)
+	if(GLUT_FOUND AND FREENECT_FOUND)
 		
-	target_link_libraries(kfusion_test kfusion) 
+		add_executable(kfusion_kinect kinect.cpp)
+
+		target_link_libraries(kfusion_kinect kfusion ${FREENECT_LIBRARIES}  ${GLUT_LIBRARIES})
+	endif()
+	
+	if(GLUT_FOUND)
+
+		add_executable(kfusion_test	test.cpp)
+		
+		target_link_libraries(kfusion_test kfusion ${GLUT_LIBRARIES})
+		
+	endif()
 	
 endif()
 	
