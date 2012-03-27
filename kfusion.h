@@ -77,12 +77,7 @@ struct Matrix4 {
     }
 };
 
-inline std::ostream & operator<<( std::ostream & out, const Matrix4 & m ){
-    for(unsigned i = 0; i < 4; ++i)
-        out << m.data[i].x << "  " << m.data[i].y << "  " << m.data[i].z << "  " << m.data[i].w << "\n";
-    return out;
-}
-
+std::ostream & operator<<( std::ostream & out, const Matrix4 & m );
 Matrix4 operator*( const Matrix4 & A, const Matrix4 & B);
 Matrix4 inverse( const Matrix4 & A );
 

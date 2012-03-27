@@ -519,6 +519,12 @@ Matrix4 inverse( const Matrix4 & A ){
     return R;
 }
 
+std::ostream & operator<<( std::ostream & out, const Matrix4 & m ){
+    for(unsigned i = 0; i < 4; ++i)
+        out << m.data[i].x << "  " << m.data[i].y << "  " << m.data[i].z << "  " << m.data[i].w << "\n";
+    return out;
+}
+
 template <typename P, typename A>
 TooN::Matrix<6> makeJTJ( const TooN::Vector<21, P, A> & v ){
     TooN::Matrix<6> C = TooN::Zeros;
