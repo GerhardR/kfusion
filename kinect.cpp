@@ -82,7 +82,7 @@ int counter = 0;
 bool reset = true;
 
 void display(void){
-    const uint2 imageSize = kfusion.configuration.renderSize();
+    const uint2 imageSize = kfusion.configuration.inputSize;
     static bool integrate = true;
 
     glClear( GL_COLOR_BUFFER_BIT );
@@ -189,6 +189,8 @@ int main(int argc, char ** argv) {
     config.mu = 0.1;
     config.combinedTrackAndReduce = false;
 
+    // change the following parameters for using 640 x 480 input images
+    config.inputSize = make_uint2(320,240); 
     config.camera =  make_float4(297.12732, 296.24240, 169.89365, 121.25151);
 
     // config.iterations is a vector<int>, the length determines
@@ -205,7 +207,7 @@ int main(int argc, char ** argv) {
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
-    glutInitWindowSize(config.renderSize().x * 2, config.renderSize().y * 2);
+    glutInitWindowSize(config.inputSize.x * 2, config.inputSize.y * 2);
     glutCreateWindow("kfusion");
 
     kfusion.Init(config);
@@ -214,7 +216,7 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose(toMatrix4(initPose));
 
-    lightScene.alloc(config.renderSize()), depth.alloc(config.renderSize()), lightModel.alloc(config.renderSize());
+    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize);
     depthImage.alloc(make_uint2(640, 480));
 
     if(InitKinect(depthImage.data()))

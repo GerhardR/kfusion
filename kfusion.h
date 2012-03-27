@@ -18,11 +18,11 @@ struct KFusionConfig {
     uint3 volumeSize;           // size of the volume in voxels
     float3 volumeDimensions;    // real world dimensions spanned by the volume in meters
 
-    bool fullFrame;             // operate on 640x480 input downscale to 320x240 input
     bool combinedTrackAndReduce;// combine tracking and calculating linear system in one
                                 // this saves some time in tracking, but there is no per pixel output anymore
 
     float4 camera;              // camera configuration parameters
+    uint2 inputSize;            // size of the input depth images
     float nearPlane, farPlane;  // values for raycasting in meters
     float mu;                   // width of linear ramp, left and right of 0 in meters
     float maxweight;            // maximal weight for volume integration, controls speed of updates
@@ -42,8 +42,10 @@ struct KFusionConfig {
         volumeSize = make_uint3(64);
         volumeDimensions = make_float3(1.f);
 
-        fullFrame = false;
         combinedTrackAndReduce = false;
+
+        camera = make_float4(160,160,160,120);
+        inputSize = make_uint2(320,240);
 
         nearPlane = 0.4f;
         farPlane = 4.0f;
@@ -65,7 +67,6 @@ struct KFusionConfig {
     }
 
     float stepSize() const {  return min(volumeDimensions)/max(volumeSize); }          // step size for raycasting
-    uint2 renderSize() const { return fullFrame ? make_uint2(640,480) : make_uint2(320,240); } // image resolution for rendering
 
 };
 
@@ -453,7 +454,6 @@ struct KFusion {
     std::vector<Image<float, Device> > inputDepth;
 
     Image<float, Device> rawDepth;
-    Image<ushort, Device> rawKinectDepth;
     Image<float, HostDevice> output;
 
     Image<float, Device> gaussian;
@@ -470,14 +470,12 @@ struct KFusion {
     // high level API to run a simple tracking - reconstruction loop
     void Reset(); // removes all reconstruction information
 
-    void setKinectDepth( ushort * ); // passes in raw 11-bit kinect data as an array of ushort
-
     template<typename A>
     void setDepth( const Image<float, A> & depth  ){ // passes in a metric depth buffer as float array
         rawDepth = depth;
     }
 
-    void setKinectDeviceDepth( const Image<uint16_t> & );
+    void setKinectDeviceDepth( const Image<uint16_t> & ); // passes in raw 11-bit kinect data reciding on the device
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose

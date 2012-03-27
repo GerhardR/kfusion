@@ -33,7 +33,7 @@ void display(void) {
 
     static bool integrate = true;
 
-    const uint2 imageSize = kfusion.configuration.renderSize();
+    const uint2 imageSize = kfusion.configuration.inputSize;
 
     const double start = Stats.start();
     raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), reference, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.01 );
@@ -184,6 +184,7 @@ int main(int argc, char ** argv) {
     config.iterations[1] = 5;
     config.iterations[2] = 5;
 
+    config.inputSize = make_uint2(320, 240);
     config.camera = make_float4(100, 100, 160, 120);
     config.nearPlane = 0.001;
 
@@ -204,14 +205,14 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose( toMatrix4( trans * rot * preTrans ));
 
-    vertex.alloc(config.renderSize());
-    normal.alloc(config.renderSize());
-    depth.alloc(config.renderSize());
-    rgb.alloc(config.renderSize());
+    vertex.alloc(config.inputSize);
+    normal.alloc(config.inputSize);
+    depth.alloc(config.inputSize);
+    rgb.alloc(config.inputSize);
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
-    glutInitWindowSize(config.renderSize().x * 3, config.renderSize().y * 3);
+    glutInitWindowSize(config.inputSize.x * 3, config.inputSize.y * 3);
     glutCreateWindow("kfusion test");
 
     glutDisplayFunc(display);
