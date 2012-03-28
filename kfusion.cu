@@ -443,21 +443,20 @@ void KFusion::Init( const KFusionConfig & config ) {
 
     integration.init(config.volumeSize, config.volumeDimensions);
 
-    reduction.alloc(config.renderSize());
-    vertex.alloc(config.renderSize());
-    normal.alloc(config.renderSize());
-    depth.alloc(config.renderSize());
-    rawKinectDepth.alloc(make_uint2(640,480));
-    rawDepth.alloc(config.renderSize());
+    reduction.alloc(config.inputSize);
+    vertex.alloc(config.inputSize);
+    normal.alloc(config.inputSize);
+    depth.alloc(config.inputSize);
+    rawDepth.alloc(config.inputSize);
 
     inputDepth.resize(config.iterations.size());
     inputVertex.resize(config.iterations.size());
     inputNormal.resize(config.iterations.size());
 
     for(int i = 0; i < config.iterations.size(); ++i){
-        inputDepth[i].alloc(config.renderSize() >> i);
-        inputVertex[i].alloc(config.renderSize() >> i);
-        inputNormal[i].alloc(config.renderSize() >> i);
+        inputDepth[i].alloc(config.inputSize >> i);
+        inputVertex[i].alloc(config.inputSize >> i);
+        inputNormal[i].alloc(config.inputSize >> i);
     }
 
     gaussian.alloc(make_uint2(config.radius * 2 + 1, 1));
@@ -483,19 +482,13 @@ void KFusion::setPose( const Matrix4 & p ){
     pose = p;
 }
 
-void KFusion::setKinectDepth( ushort * ptr ){
-    cudaMemcpy(rawKinectDepth.data(), ptr, rawKinectDepth.size.x * rawKinectDepth.size.y * sizeof(Image<ushort>::PIXEL_TYPE), cudaMemcpyHostToDevice);
-    if(configuration.fullFrame)
-        raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
-    else
-        raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, rawKinectDepth );
-}
-
 void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
-    if(configuration.fullFrame)
+    if(configuration.inputSize.x == in.size.x)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
-    else
+    else if(configuration.inputSize.x == in.size.x / 2 )
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
+    else
+        assert(false);
 }
 
 Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
@@ -517,6 +510,12 @@ Matrix4 inverse( const Matrix4 & A ){
     Matrix4 R;
     TooN::wrapMatrix<4,4>(&R.data[0].x) = TooN::gaussian_elimination(temp , I );
     return R;
+}
+
+std::ostream & operator<<( std::ostream & out, const Matrix4 & m ){
+    for(unsigned i = 0; i < 4; ++i)
+        out << m.data[i].x << "  " << m.data[i].y << "  " << m.data[i].z << "  " << m.data[i].w << "\n";
+    return out;
 }
 
 template <typename P, typename A>
@@ -550,10 +549,10 @@ bool KFusion::Track() {
 
     vector<dim3> grids;
     for(int i = 0; i < configuration.iterations.size(); ++i)
-        grids.push_back(divup(configuration.renderSize() >> i, configuration.imageBlock));
+        grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.renderSize(), configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
