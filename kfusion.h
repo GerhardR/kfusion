@@ -8,8 +8,8 @@
 #include <vector_functions.h>
 #include <cuda_gl_interop.h> // includes cuda_gl_interop.h
 
-#include "glproxy.h"
 #include "cutil_math.h"
+#include "glproxy.h"
 
 inline int divup(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 inline dim3 divup( uint2 a, dim3 b) { return dim3(divup(a.x, b.x), divup(a.y, b.y)); }
