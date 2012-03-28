@@ -182,7 +182,6 @@ int main(int argc, char ** argv) {
     config.volumeSize = make_uint3(128);
     //config.volumeSize = make_uint3(256);
 	config.maxweight = 100.f; // default 100
-	config.fullFrame = true;
 
     // these are physical dimensions in meters
     config.volumeDimensions = make_float3(size);
