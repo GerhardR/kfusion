@@ -12,6 +12,11 @@ find_package(OpenGL)
 find_package(X11)
 find_package(GLUT)
 
+cuda_add_executable(devicequery
+	devicequery.cpp
+	)
+
+
 if(OPENGL_FOUND)
 	
 	include_directories(${FREENECT_INCLUDE_PATHS} ${OPENGL_INCLUDE_DIRS})
