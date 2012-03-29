@@ -171,4 +171,6 @@ void renderVolumeLight( Image<uchar4> out, const Volume & volume, const Matrix4 
 void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
     dim3 block(16,16);
     raycast<<<divup(pos3D.size, block), block>>>(pos3D, normal, depth, volume, view, nearPlane, farPlane, step, largestep);
+
+    printCUDAError(__LINE__,__FUNCTION__);
 }
