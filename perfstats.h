@@ -9,6 +9,7 @@
 #include <vector>
 #include <ctime>
 
+
 struct PerfStats {
     enum Type { TIME, COUNT, PERCENTAGE };
     struct Stats {
@@ -22,6 +23,7 @@ struct PerfStats {
 
     std::map<std::string, Stats> stats;
     double last;
+
 
     static double get_time() {
         return double(std::clock())/CLOCKS_PER_SEC;

@@ -2,8 +2,11 @@
 #define HELPERS_H
 
 #include "kfusion.h"
+#include "glproxy.h"
 
 #include <TooN/se3.h>
+#include <cstring>
+
 
 inline Matrix4 toMatrix4( const TooN::SE3<float> & p){
     static TooN::Matrix<4,4,float> I = TooN::Identity; 

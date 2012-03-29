@@ -2,3 +2,5 @@ _darcs
 *.o
 kinect
 test
+build*
+CMakeLists.txt.user

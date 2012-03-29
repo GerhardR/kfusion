@@ -11,10 +11,10 @@
 #include <GL/glut.h>
 #endif
 
-#include "perfstats.h"
-
-using namespace std;
 using namespace TooN;
+using namespace std;
+
+#include "perfstats.h"
 
 SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
 SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
@@ -36,8 +36,15 @@ void display(void) {
     const uint2 imageSize = kfusion.configuration.inputSize;
 
     const double start = Stats.start();
+
+    cudaDeviceSynchronize();
+
+    printCUDAError(__LINE__,__FUNCTION__);
+
     raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), reference, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.01 );
     cudaDeviceSynchronize();
+
+
     Stats.sample("ground raycast");
     Stats.sample("ground copy");
 
@@ -49,8 +56,14 @@ void display(void) {
     glDrawPixels(depth);
     Stats.sample("ground draw");
 
+    printCUDAError(__LINE__,__FUNCTION__);
+
+    cudaDeviceSynchronize();
     kfusion.setDepth( depth.getDeviceImage() );
     cudaDeviceSynchronize();
+
+    printCUDAError(__LINE__,__FUNCTION__);
+
     const double track_start = Stats.sample("process depth");
 
     if(counter > 1){
@@ -63,10 +76,14 @@ void display(void) {
     normal = kfusion.normal;
     Stats.sample("track get");
 
+    printCUDAError(__LINE__,__FUNCTION__);
+
     renderTrackResult(rgb.getDeviceImage(), kfusion.reduction);
     cudaDeviceSynchronize();
     Stats.sample("track render");
     Stats.sample("track copy");
+
+    printCUDAError(__LINE__,__FUNCTION__);
 
     glRasterPos2i(0,imageSize.y * 1);
     glDrawPixels(vertex);
@@ -83,10 +100,14 @@ void display(void) {
     }
     Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
 
+    printCUDAError(__LINE__,__FUNCTION__);
+
     raycastWrap(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.7 * kfusion.configuration.mu );
     cudaDeviceSynchronize();
     Stats.sample("view raycast");
     Stats.sample("view copy");
+
+    printCUDAError(__LINE__,__FUNCTION__);
 
     glRasterPos2i(0,imageSize.y * 2);
     glDrawPixels(vertex);
@@ -107,7 +128,7 @@ void display(void) {
 
     ++counter;
 
-    printCUDAError();
+    printCUDAError(__LINE__,__FUNCTION__);
 
     glutSwapBuffers();
 }
@@ -173,6 +194,11 @@ void reshape(int width, int height){
 
 int main(int argc, char ** argv) {
 
+    if (!OpenGLRuntimeLinking()) {
+	cerr << "need at least OpenGL 2.0" << std::endl;
+	return -1;
+	};
+
     benchmark = argc > 1 && string(argv[1]) == "-b";
 
     KFusionConfig config;
@@ -204,6 +230,7 @@ int main(int argc, char ** argv) {
     setSphereWrap(reference, make_float3(0.5f), 0.2f, -1.0f);
 
     kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+
 
     vertex.alloc(config.inputSize);
     normal.alloc(config.inputSize);

@@ -9,6 +9,7 @@
 #include <cuda_gl_interop.h> // includes cuda_gl_interop.h
 
 #include "cutil_math.h"
+#include "glproxy.h"
 
 inline int divup(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 inline dim3 divup( uint2 a, dim3 b) { return dim3(divup(a.x, b.x), divup(a.y, b.y)); }
@@ -444,6 +445,8 @@ struct TrackData {
     float J[6];
 };
 
+int printCUDAError(int line = 0, const char *func = 0); // print the last error
+
 struct KFusion {
     Volume integration;
     Image<TrackData, Device> reduction;
@@ -473,6 +476,7 @@ struct KFusion {
     template<typename A>
     void setDepth( const Image<float, A> & depth  ){ // passes in a metric depth buffer as float array
         rawDepth = depth;
+        printCUDAError(0,"setDepth");
     }
 
     void setKinectDeviceDepth( const Image<uint16_t> & ); // passes in raw 11-bit kinect data reciding on the device
@@ -481,7 +485,6 @@ struct KFusion {
     void Integrate(); // Integrates the current depth map using the current camera pose
 };
 
-int printCUDAError(); // print the last error
 
 // low level API without any state. These are the kernel functions
 

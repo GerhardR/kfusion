@@ -11,6 +11,7 @@ using a single Kinect camera as the input sensor.
 
 KFusion is mainly written in CUDA with some interface code to display graphics output.
 
+
 Requirements
 ------------
 

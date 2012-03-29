@@ -180,7 +180,8 @@ int main(int argc, char ** argv) {
     // everything else is derived from that.
     // config.volumeSize = make_uint3(64);
     config.volumeSize = make_uint3(128);
-    // config.volumeSize = make_uint3(256);
+    //config.volumeSize = make_uint3(256);
+	config.maxweight = 100.f; // default 100
 
     // these are physical dimensions in meters
     config.volumeDimensions = make_float3(size);
