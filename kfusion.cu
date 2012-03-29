@@ -13,6 +13,22 @@ static const float INVALID = -2;   // this is used to mark invalid entries in no
 
 using namespace std;
 
+
+
+int printCUDAError(int line/* = 0*/, const char* func /*= 0*/)
+{
+    cudaError_t error = cudaGetLastError();
+    if(error)
+    {
+        std::cerr << " " << line << " " << (func ? func : "" ) << ": " << cudaGetErrorString(error) << std::endl;
+        exit(-1);
+    }
+    return error;
+}
+
+
+#define PRINT_CUDA_ERROR() printCUDAError(__LINE__,__FUNCTION__);
+
 __global__ void initVolume( Volume volume, const float2 val ){
     uint3 pos = make_uint3(thr2pos2());
     for(pos.z = 0; pos.z < volume.size.z; ++pos.z)
@@ -126,20 +142,26 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
     if(pixel.x >= vertex.size.x || pixel.y >= vertex.size.y )
         return;
 
-    if(pixel.x == 0 || pixel.y == 0 || pixel.x == vertex.size.x - 1 || pixel.y == vertex.size.y - 1 ){
+    if(pixel.x == 0 || pixel.y == 0 || (pixel.x == vertex.size.x - 1) || (pixel.y == vertex.size.y - 1) ){
         normal[pixel].x = INVALID;
         return;
     }
 
-    const float3 * center = & vertex[pixel];
-    if(center[-1].z == 0 || center[+1].z == 0 || center[-vertex.size.x].z == 0 || center[+vertex.size.x].z == 0){
+    const uint2 dx = make_uint2(1,0);
+    const uint2 dy = make_uint2(0,1);
+    const uint2 size = vertex.size - make_uint2(1,1);
+    if(vertex[clamp(pixel-dx, make_uint2(0,0), size)].z == 0 ||
+       vertex[clamp(pixel+dx, make_uint2(0,0), size)].z == 0 ||
+       vertex[clamp(pixel-dy, make_uint2(0,0), size)].z == 0 ||
+       vertex[clamp(pixel+dy, make_uint2(0,0), size)].z == 0 )
+    {
         normal[pixel].x = INVALID;
         return;
     }
 
-    const float3 dx = center[+1] - center[-1];
-    const float3 dy = center[+vertex.size.x] - center[-vertex.size.x];
-    normal[pixel] = normalize(cross(dy, dx)); // switched dx and dy to get factor -1
+    const float3 dxv = vertex[clamp(pixel+dx, make_uint2(0,0), size)] - vertex[clamp(pixel-dx, make_uint2(0,0), size)];
+    const float3 dyv = vertex[clamp(pixel+dy, make_uint2(0,0), size)] - vertex[clamp(pixel-dy, make_uint2(0,0), size)];
+    normal[pixel] = normalize(cross(dyv, dxv)); // switched dx and dy to get factor -1
 }
 
 __forceinline__ __device__ float raw2depth( float d ){
@@ -255,6 +277,7 @@ __global__ void track( Image<TrackData> output, const Image<float3> inVertex, co
     row.error = dot(referenceNormal, diff);
     ((float3 *)row.J)[0] = referenceNormal;
     ((float3 *)row.J)[1] = cross(projectedVertex, referenceNormal);
+
 }
 
 __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size){
@@ -328,6 +351,7 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
             S[0][sline] += S[i][sline];
         out[sline+blockIdx.x*32] = S[0][sline];
     }
+
 }
 
 __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ){
@@ -465,6 +489,8 @@ void KFusion::Init( const KFusionConfig & config ) {
     //generate gaussian array
     generate_gaussian<<< 1, gaussian.size.x>>>(gaussian, config.delta, config.radius);
 
+    PRINT_CUDA_ERROR()
+
     Reset();
 }
 
@@ -472,6 +498,7 @@ void KFusion::Reset(){
     dim3 block(32,16);
     dim3 grid = divup(dim3(integration.size.x, integration.size.y), block);
     initVolume<<<grid, block>>>(integration, make_float2(1.0f, 0.0f));
+    PRINT_CUDA_ERROR()
  }
 
 void KFusion::Clear(){
@@ -483,12 +510,16 @@ void KFusion::setPose( const Matrix4 & p ){
 }
 
 void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
+    PRINT_CUDA_ERROR()
+
     if(configuration.inputSize.x == in.size.x)
         raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
     else if(configuration.inputSize.x == in.size.x / 2 )
         raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
     else
         assert(false);
+
+    PRINT_CUDA_ERROR()
 }
 
 Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
@@ -545,27 +576,55 @@ TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
 }
 
 bool KFusion::Track() {
+
     const Matrix4 invK = getInverseCameraMatrix(configuration.camera);
+
+    PRINT_CUDA_ERROR()
 
     vector<dim3> grids;
     for(int i = 0; i < configuration.iterations.size(); ++i)
         grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
+    PRINT_CUDA_ERROR()
+
     // raycast integration volume into the depth, vertex, normal buffers
     raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+
+
+    cudaDeviceSynchronize();
+
+    PRINT_CUDA_ERROR()
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
 
+
+    cudaDeviceSynchronize();
+
     // half sample the input depth maps into the pyramid levels
-    for(int i = 1; i < configuration.iterations.size(); ++i)
+    for(int i = 1; i < configuration.iterations.size(); ++i) {
+
         halfSampleRobust<<<grids[i], configuration.imageBlock>>>(inputDepth[i], inputDepth[i-1], configuration.e_delta * 3, 1);
+
+
+        cudaDeviceSynchronize();
+    }
+
+    PRINT_CUDA_ERROR()
 
     // prepare the 3D information from the input depth maps
     for(int i = 0; i < configuration.iterations.size(); ++i){
+
         depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / (1 << i))); // inverse camera matrix depends on level
+
+        cudaDeviceSynchronize();
+
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
+
+        cudaDeviceSynchronize();
     }
+
+    PRINT_CUDA_ERROR()
 
     Matrix4 oldPose = pose;
 
@@ -575,7 +634,12 @@ bool KFusion::Track() {
             if(configuration.combinedTrackAndReduce){
                 trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold );
             } else {
+
+                cudaDeviceSynchronize();
                 track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold);
+
+                cudaDeviceSynchronize();
+
                 reduce<<<8, 112>>>( output.getDeviceImage().data(), reduction, inputVertex[level].size );             // compute the linear system to solve
             }
             cudaDeviceSynchronize(); // important due to async nature of kernel call
@@ -588,6 +652,9 @@ bool KFusion::Track() {
                 break;
         }
     }
+
+    PRINT_CUDA_ERROR()
+
     if(sqrt(values(0,0) / values(0,28)) > 2e-2){
         pose = oldPose;
         return false;
@@ -596,12 +663,8 @@ bool KFusion::Track() {
 }
 
 void KFusion::Integrate() {
+    PRINT_CUDA_ERROR()
     integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, inverse(pose), getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    PRINT_CUDA_ERROR()
 }
 
-int printCUDAError() {
-    cudaError_t error = cudaGetLastError();
-    if(error)
-        std::cout << cudaGetErrorString(error) << std::endl;
-    return error;
-}

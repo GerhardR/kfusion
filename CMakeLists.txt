@@ -6,6 +6,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include_directories(dep)
 
+
+#set(CUDA_NVCC_FLAGS "-arch=sm_12")
+
 find_package(CUDA REQUIRED)
 find_package(Freenect)
 find_package(OpenGL)
