@@ -567,15 +567,16 @@ bool KFusion::Track() {
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
     }
 
-    Matrix4 oldPose = pose;
+    const Matrix4 oldPose = pose;
+    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(pose);
 
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){
         for(int i = 0; i < configuration.iterations[level]; ++i){
             if(configuration.combinedTrackAndReduce){
-                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold );
+                trackAndReduce<<<8, 112>>>( output.getDeviceImage().data(), inputVertex[level], inputNormal[level], vertex, normal, pose, projectReference, configuration.dist_threshold, configuration.normal_threshold );
             } else {
-                track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose,  getCameraMatrix(configuration.camera) * inverse(pose), configuration.dist_threshold, configuration.normal_threshold);
+                track<<<grids[level], configuration.imageBlock>>>( reduction, inputVertex[level], inputNormal[level], vertex, normal, pose, projectReference, configuration.dist_threshold, configuration.normal_threshold);
                 reduce<<<8, 112>>>( output.getDeviceImage().data(), reduction, inputVertex[level].size );             // compute the linear system to solve
             }
             cudaDeviceSynchronize(); // important due to async nature of kernel call
@@ -584,7 +585,7 @@ bool KFusion::Track() {
             TooN::Vector<6> x = solve(values[0].slice<1,27>());
             TooN::SE3<> delta(x);
             pose = toMatrix4( delta ) * pose;
-            if(norm(x) < 1e-7)
+            if(norm(x) < 1e-5)
                 break;
         }
     }
