@@ -126,20 +126,19 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
     if(pixel.x >= vertex.size.x || pixel.y >= vertex.size.y )
         return;
 
-    if(pixel.x == 0 || pixel.y == 0 || pixel.x == vertex.size.x - 1 || pixel.y == vertex.size.y - 1 ){
-        normal[pixel].x = INVALID;
-        return;
+    const float3 left = vertex[make_uint2(max(pixel.x-1,0), pixel.y)];
+    const float3 right = vertex[make_uint2(min(pixel.x+1,vertex.size.x-1), pixel.y)];
+    const float3 up = vertex[make_uint2(pixel.x, max(pixel.y-1,0))];
+    const float3 down = vertex[make_uint2(pixel.x, min(pixel.y+1,vertex.size.y-1))];
+
+    if(left.z == 0 || right.z == 0 || up.z == 0 || down.z == 0) {
+         normal[pixel].x = INVALID;
+         return;
     }
 
-    const float3 * center = & vertex[pixel];
-    if(center[-1].z == 0 || center[+1].z == 0 || center[-vertex.size.x].z == 0 || center[+vertex.size.x].z == 0){
-        normal[pixel].x = INVALID;
-        return;
-    }
-
-    const float3 dx = center[+1] - center[-1];
-    const float3 dy = center[+vertex.size.x] - center[-vertex.size.x];
-    normal[pixel] = normalize(cross(dy, dx)); // switched dx and dy to get factor -1
+    const float3 dxv = right - left;
+    const float3 dyv = down - up;
+    normal[pixel] = normalize(cross(dyv, dxv)); // switched dx and dy to get factor -1
 }
 
 __forceinline__ __device__ float raw2depth( float d ){
