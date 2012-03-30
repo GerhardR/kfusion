@@ -18,10 +18,10 @@ void renderNormalMap( Image<uchar3> out, const Image<float3> & ); // renders int
 void renderLight( Image<uchar4> out, const Image<float3> & vertex, const Image<float3> & normal, const float3 light, const float3 ambient); // renders into a grayscale intensity map with lightsource
 void renderTrackResult( Image<uchar4> out, const Image<TrackData> & data );
 void renderVolumeLight( Image<uchar4> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient );
+void renderInput( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
 
 // simple wrappers around the kfusion.h kernel functions
 void initVolumeWrap( Volume volume, const float val );
-void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
 
 // some more wrappers around simple test kernels
 void setBoxWrap(Volume volume, const float3 min_corner, const float3 max_corner, const float val );

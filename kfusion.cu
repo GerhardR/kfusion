@@ -19,64 +19,22 @@ __global__ void initVolume( Volume volume, const float2 val ){
         volume.set(pos, val);
 }
 
-__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
+__global__ void raycast( Image<float3> pos3D, Image<float3> normal, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
     const uint2 pos = thr2pos2();
 
-    const float3 origin = view.get_translation();
-    const float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
-
-    // intersect ray with a box
-    // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
-    // compute intersection of ray with all six bbox planes
-    const float3 invR = make_float3(1.0f) / direction;
-    const float3 tbot = -1 * invR * origin;
-    const float3 ttop = invR * (volume.dim - origin);
-
-    // re-order intersections to find smallest and largest on each axis
-    const float3 tmin = fminf(ttop, tbot);
-    const float3 tmax = fmaxf(ttop, tbot);
-
-    // find the largest tmin and the smallest tmax
-    const float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
-    const float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
-
-    // check against near and far plane
-    const float tnear = fmaxf(largest_tmin, nearPlane);
-    const float tfar = fminf(smallest_tmax, farPlane);
-
-    if(tnear < tfar) {
-        // first walk with largesteps until we found a hit
-        float t = tnear;
-        float stepsize = largestep;
-        float f_t = volume.interp(origin + direction * t);
-        float f_tt = 0;
-        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
-            for(; t < tfar; t += stepsize){
-                f_tt = volume.interp(origin + direction * t);
-                if(f_tt < 0)                               // got it, jump out of inner loop
-                    break;
-                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
-                    stepsize = step;
-                f_t = f_tt;
-            }
-            if(f_tt < 0){                               // got it, calculate accurate intersection
-                t = t + stepsize * f_tt / (f_t - f_tt);
-                const float3 test = origin + direction * t;
-                pos3D[pos] = test;
-                depth[pos] = t;
-                float3 surfNorm = volume.grad(test);
-                if(length(surfNorm) == 0){
-                    normal[pos].x = INVALID;
-                } else {
-                    normal[pos] = normalize(surfNorm);
-                }
-                return;
-            }
+    const float4 hit = raycast( volume, pos, view, nearPlane, farPlane, step, largestep );
+    if(hit.w > 0){
+        pos3D[pos] = make_float3(hit);
+        float3 surfNorm = volume.grad(make_float3(hit));
+        if(length(surfNorm) == 0){
+            normal[pos].x = INVALID;
+        } else {
+            normal[pos] = normalize(surfNorm);
         }
+    } else {
+        pos3D[pos] = make_float3(0);
+        normal[pos] = make_float3(0);
     }
-    pos3D[pos] = make_float3(0);
-    normal[pos] = make_float3(0);
-    depth[pos] = 0;
 }
 
 __forceinline__ __device__ float sq( const float x ){
@@ -445,7 +403,6 @@ void KFusion::Init( const KFusionConfig & config ) {
     reduction.alloc(config.inputSize);
     vertex.alloc(config.inputSize);
     normal.alloc(config.inputSize);
-    depth.alloc(config.inputSize);
     rawDepth.alloc(config.inputSize);
 
     inputDepth.resize(config.iterations.size());
@@ -552,7 +509,7 @@ bool KFusion::Track() {
         grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, depth, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);

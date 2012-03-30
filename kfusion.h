@@ -448,7 +448,6 @@ struct KFusion {
     Volume integration;
     Image<TrackData, Device> reduction;
     Image<float3, Device> vertex, normal;
-    Image<float, Device> depth;
 
     std::vector<Image<float3, Device> > inputVertex, inputNormal;
     std::vector<Image<float, Device> > inputDepth;
@@ -486,13 +485,60 @@ int printCUDAError(); // print the last error
 // low level API without any state. These are the kernel functions
 
 __global__ void initVolume( Volume volume, const float2 val );
-__global__ void raycast( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
-__global__ void integrate( Volume vol, Volume weight, const Image<float> depth, const Matrix4 view, const float mu, const float maxweight);
+__global__ void raycast( Image<float3> pos3D, Image<float3> normal, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep);
+__global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 view, const float mu, const float maxweight);
 __global__ void depth2vertex( Image<float3> vertex, const Image<float> depth, const Matrix4 invK );
 __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex );
 __global__ void bilateral_filter(Image<float> out, const Image<float> in, const Image<float> gaussian, float e_d, int r);
 __global__ void track( Image<TrackData> output, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold ) ;
 __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size);
 __global__ void trackAndReduce( float * out, const Image<float3> inVertex, const Image<float3> inNormal , const Image<float3> refVertex, const Image<float3> refNormal, const Matrix4 Ttrack, const Matrix4 view, const float dist_threshold, const float normal_threshold );
+
+__device__ __forceinline__ float4 raycast( const Volume volume, const uint2 pos, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
+    const float3 origin = view.get_translation();
+    const float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
+
+    // intersect ray with a box
+    // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
+    // compute intersection of ray with all six bbox planes
+    const float3 invR = make_float3(1.0f) / direction;
+    const float3 tbot = -1 * invR * origin;
+    const float3 ttop = invR * (volume.dim - origin);
+
+    // re-order intersections to find smallest and largest on each axis
+    const float3 tmin = fminf(ttop, tbot);
+    const float3 tmax = fmaxf(ttop, tbot);
+
+    // find the largest tmin and the smallest tmax
+    const float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
+    const float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
+
+    // check against near and far plane
+    const float tnear = fmaxf(largest_tmin, nearPlane);
+    const float tfar = fminf(smallest_tmax, farPlane);
+
+    if(tnear < tfar) {
+        // first walk with largesteps until we found a hit
+        float t = tnear;
+        float stepsize = largestep;
+        float f_t = volume.interp(origin + direction * t);
+        float f_tt = 0;
+        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
+            for(; t < tfar; t += stepsize){
+                f_tt = volume.interp(origin + direction * t);
+                if(f_tt < 0)                               // got it, jump out of inner loop
+                    break;
+                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
+                    stepsize = step;
+                f_t = f_tt;
+            }
+            if(f_tt < 0){                               // got it, calculate accurate intersection
+                t = t + stepsize * f_tt / (f_t - f_tt);
+                return make_float4(origin + direction * t, t);
+            }
+        }
+    }
+    return make_float4(0);
+}
 
 #endif // KFUSION_H

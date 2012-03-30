@@ -106,61 +106,22 @@ void renderTrackResult( Image<uchar4> out, const Image<TrackData> & data ){
 
 __global__ void raycastLight( Image<uchar4> render, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep, const float3 light, const float3 ambient){
     const uint2 pos = thr2pos2();
-
-    float3 origin = view.get_translation();
-    float3 direction = rotate(view, make_float3(pos.x, pos.y, 1.f));
-
-    // intersect ray with a box
-    // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
-    // compute intersection of ray with all six bbox planes
-    float3 invR = make_float3(1.0f) / direction;
-    float3 tbot = -invR * origin;
-    float3 ttop = invR * (volume.dim - origin);
-
-    // re-order intersections to find smallest and largest on each axis
-    float3 tmin = fminf(ttop, tbot);
-    float3 tmax = fmaxf(ttop, tbot);
-
-    // find the largest tmin and the smallest tmax
-    float largest_tmin = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
-    float smallest_tmax = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
-
-    // check against near and far plane
-    float tnear = fmaxf(largest_tmin, nearPlane);
-    float tfar = fminf(smallest_tmax, farPlane);
-
-    if(tnear < tfar) {
-        // first walk with largesteps until we found a hit
-        float t = tnear;
-        float stepsize = largestep;
-        float f_t = volume.interp(origin + direction * t);
-        float f_tt = 0;
-        if( f_t > 0){     // ups, if we were already in it, then don't render anything here
-            for(; t < tfar; t += stepsize){
-                f_tt = volume.interp(origin + direction * t);
-                if(f_tt < 0)                               // got it, jump out of inner loop
-                    break;
-                if(f_tt < 0.8f)                            // coming closer, reduce stepsize
-                    stepsize = step;
-                f_t = f_tt;
-            }
-            if(f_tt < 0){                               // got it, calculate accurate intersection
-                t = t + stepsize * f_tt / (f_t - f_tt);
-                const float3 test = origin + direction * t;
-                const float3 surfNorm = volume.grad(test);
-                if(length(surfNorm) > 0){
-                    const float3 diff = normalize(light - test);
-                    const float dir = fmaxf(dot(normalize(surfNorm), diff), 0.f);
-                    const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
-                    render.el() = make_uchar4(col.x, col.y, col.z,0);
-                } else {
-                    render.el() = make_uchar4(0,0,0,0);
-                }
-                return;
-            }
+    
+    float4 hit = raycast( volume, pos, view, nearPlane, farPlane, step, largestep);
+    if(hit.w > 0){
+        const float3 test = make_float3(hit);
+        const float3 surfNorm = volume.grad(test);
+        if(length(surfNorm) > 0){
+            const float3 diff = normalize(light - test);
+            const float dir = fmaxf(dot(normalize(surfNorm), diff), 0.f);
+            const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
+            render.el() = make_uchar4(col.x, col.y, col.z,0);
+        } else {
+            render.el() = make_uchar4(0,0,0,0);
         }
+    } else {
+        render.el() = make_uchar4(0,0,0,0);
     }
-    render.el() = make_uchar4(0,0,0,0);
 }
 
 void renderVolumeLight( Image<uchar4> out, const Volume & volume, const Matrix4 view, const float nearPlane, const float farPlane, const float largestep, const float3 light, const float3 ambient ){
@@ -168,7 +129,28 @@ void renderVolumeLight( Image<uchar4> out, const Volume & volume, const Matrix4 
     raycastLight<<<divup(out.size, block), block>>>( out,  volume, view, nearPlane, farPlane, volume.dim.x/volume.size.x, largestep, light, ambient );
 }
 
-void raycastWrap( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
+__global__ void raycastInput( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
+    const uint2 pos = thr2pos2();
+    
+    float4 hit = raycast( volume, pos, view, nearPlane, farPlane, step, largestep);
+    if(hit.w > 0){
+        pos3D[pos] = make_float3(hit);
+        depth[pos] = hit.w;
+        float3 surfNorm = volume.grad(make_float3(hit));
+        if(length(surfNorm) == 0){
+            normal[pos].x = -2;
+        } else {
+            normal[pos] = normalize(surfNorm);
+        }
+    } else {
+        pos3D[pos] = make_float3(0);
+        normal[pos] = make_float3(0);
+        depth[pos] = 0;
+    }
+}
+
+
+void renderInput( Image<float3> pos3D, Image<float3> normal, Image<float> depth, const Volume volume, const Matrix4 view, const float nearPlane, const float farPlane, const float step, const float largestep){
     dim3 block(16,16);
-    raycast<<<divup(pos3D.size, block), block>>>(pos3D, normal, depth, volume, view, nearPlane, farPlane, step, largestep);
+    raycastInput<<<divup(pos3D.size, block), block>>>(pos3D, normal, depth, volume, view, nearPlane, farPlane, step, largestep);
 }
