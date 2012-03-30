@@ -496,8 +496,9 @@ Matrix4 operator*( const Matrix4 & A, const Matrix4 & B){
     return R;
 }
 
-inline Matrix4 toMatrix4( const TooN::SE3<> & p){
-    static TooN::Matrix<4, 4, float> I = TooN::Identity;
+template<typename P>
+inline Matrix4 toMatrix4( const TooN::SE3<P> & p){
+    const TooN::Matrix<4, 4, float> I = TooN::Identity;
     Matrix4 R;
     TooN::wrapMatrix<4,4>(&R.data[0].x) = p * I;
     return R;

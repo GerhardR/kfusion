@@ -5,11 +5,11 @@
 
 #include <TooN/se3.h>
 
-inline Matrix4 toMatrix4( const TooN::SE3<float> & p){
-    static TooN::Matrix<4,4,float> I = TooN::Identity; 
-    TooN::Matrix<4,4,float> T = p * I;
+template<typename P>
+inline Matrix4 toMatrix4( const TooN::SE3<P> & p){
+    const TooN::Matrix<4, 4, float> I = TooN::Identity;
     Matrix4 R;
-    memcpy(R.data, T.get_data_ptr(), 4*4*sizeof(float));
+    TooN::wrapMatrix<4,4>(&R.data[0].x) = p * I;
     return R;
 }
 
