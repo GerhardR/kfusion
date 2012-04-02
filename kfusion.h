@@ -1,7 +1,9 @@
 #ifndef KFUSION_H
 #define KFUSION_H
 
+// deal with OpenGL on X11 and Win32/64
 #define GL_GLEXT_PROTOTYPES
+#include "glproxy.h"
 
 #include <iostream>
 #include <vector>
