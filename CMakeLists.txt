@@ -4,15 +4,16 @@ project(kfusion)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-include_directories(
-	${CMAKE_BINARY_DIR}/include
-	thirdparty
-)
-
 find_package(CUDA REQUIRED)
+find_package(TooN REQUIRED)
 find_package(OpenGL)
 find_package(Freenect)
 find_package(GLUT)
+
+include_directories(
+	${CMAKE_BINARY_DIR}/include
+	${TOON_INCLUDE_PATHS}
+)
 
 cuda_add_executable(devicequery
 	devicequery.cpp
