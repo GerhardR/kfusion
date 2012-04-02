@@ -84,9 +84,9 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
     if(pixel.x >= vertex.size.x || pixel.y >= vertex.size.y )
         return;
 
-    const float3 left = vertex[make_uint2(max(pixel.x-1,0), pixel.y)];
+    const float3 left = vertex[make_uint2(max(int(pixel.x)-1,0), pixel.y)];
     const float3 right = vertex[make_uint2(min(pixel.x+1,vertex.size.x-1), pixel.y)];
-    const float3 up = vertex[make_uint2(pixel.x, max(pixel.y-1,0))];
+    const float3 up = vertex[make_uint2(pixel.x, max(int(pixel.y)-1,0))];
     const float3 down = vertex[make_uint2(pixel.x, min(pixel.y+1,vertex.size.y-1))];
 
     if(left.z == 0 || right.z == 0 || up.z == 0 || down.z == 0) {
