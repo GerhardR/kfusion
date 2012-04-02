@@ -69,6 +69,6 @@ Done
 - ambient lighting
 - bilateral filtering
 
-Contributers
+Contributors
 -------------
 Hartmut Seichter
