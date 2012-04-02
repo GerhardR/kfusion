@@ -6,7 +6,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include_directories(
 	${CMAKE_BINARY_DIR}/include
-	dep
+	thirdparty
 )
 
 find_package(CUDA REQUIRED)

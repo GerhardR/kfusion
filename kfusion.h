@@ -1,6 +1,8 @@
 #ifndef KFUSION_H
 #define KFUSION_H
 
+#define GL_GLEXT_PROTOTYPES
+
 #include <iostream>
 #include <vector>
 
