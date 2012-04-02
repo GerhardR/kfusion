@@ -1,0 +1,3 @@
+[submodule "thirdparty/TooN"]
+	path = thirdparty/TooN
+	url = git://git.savannah.nongnu.org/toon.git
