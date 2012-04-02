@@ -1,5 +1,5 @@
 
-KFusion 0.2
+KFusion 0.3
 =============
 
 Copyright TU Graz, Gerhard Reitmayr, 2011 - 2012
@@ -39,6 +39,8 @@ Todo
 
 Done
 -----
+- CMake build system (contributed by Hartmut Seichter)
+- fixed a substantial bug in tracking
 - improved raycasting by an implementation closer to the paper. This also seems to take care of the following issue:
     - tracking works much better with a detailed model and sharp bounds on normals (0.9), problem for low resultion ?
 - replaced libcvd with GLUT in the master branch
@@ -66,3 +68,7 @@ Done
 - template volume on data type and convert to/from float on the fly - did not change speed at all !
 - ambient lighting
 - bilateral filtering
+
+Contributers
+-------------
+Hartmut Seichter
