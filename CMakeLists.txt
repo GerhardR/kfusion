@@ -34,7 +34,7 @@ cuda_add_library(kfusion SHARED
 	-O3
 	)
 
-if (GLUT_FOUND AND FREENECT_FOUND)		
+if (GLUT_FOUND AND FREENECT_FOUND)
 	
 	include_directories(${FREENECT_INCLUDE_PATHS})
 
@@ -55,4 +55,3 @@ if(GLUT_FOUND)
 	target_link_libraries(kfusion_test kfusion ${GLUT_LIBRARIES} ${OPENGL_LIBRARIES}) 
 
 endif()
-	
