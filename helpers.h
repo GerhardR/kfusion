@@ -5,6 +5,8 @@
 
 #include <TooN/se3.h>
 
+#include <cuda_gl_interop.h> // includes cuda_gl_interop.h
+
 template<typename P>
 inline Matrix4 toMatrix4( const TooN::SE3<P> & p){
     const TooN::Matrix<4, 4, float> I = TooN::Identity;
@@ -59,15 +61,6 @@ inline void glDrawPixels( const Image<T, A> & i ){
     ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     ::glPixelStorei(GL_UNPACK_ROW_LENGTH, i.size.x);
     ::glDrawPixels(i.size.x, i.size.y, gl<T>::format, gl<T>::type, i.data());
-}
-
-template <typename T>
-inline void glDrawPixels( const Image<T, PBO> & i ){
-    ::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, i.id);
-    ::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    ::glPixelStorei(GL_UNPACK_ROW_LENGTH, i.size.x);
-    ::glDrawPixels(i.size.x, i.size.y, gl<T>::format, gl<T>::type, 0);
-    ::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 }
 
 #endif // HELPERS_H

@@ -1,16 +1,11 @@
 #ifndef KFUSION_H
 #define KFUSION_H
 
-// deal with OpenGL on X11 and Win32/64
-#define GL_GLEXT_PROTOTYPES
-#include "glproxy.h"
-
 #include <iostream>
 #include <vector>
 
 #include <vector_types.h>
 #include <vector_functions.h>
-#include <cuda_gl_interop.h> // includes cuda_gl_interop.h
 
 #include "cutil_math.h"
 
@@ -272,36 +267,6 @@ struct HostDevice {
     void * data;
 };
 
-struct PBO {
-    PBO() : data(NULL), pbo(NULL), id(0) {}
-    ~PBO() {
-        cudaGraphicsUnregisterResource(pbo);
-        glDeleteBuffers(1, &id);
-    }
-
-    void alloc( uint size ) {
-        glGenBuffers( 1, &id );
-        glBindBuffer( GL_PIXEL_UNPACK_BUFFER, id );
-        glBufferData( GL_PIXEL_UNPACK_BUFFER, size, NULL, GL_STREAM_DRAW );
-        cudaGraphicsGLRegisterBuffer(&pbo, id, cudaGraphicsMapFlagsWriteDiscard);
-    }
-
-    void map(){
-        size_t num_bytes;
-        cudaGraphicsMapResources(1, &pbo, 0);
-        cudaGraphicsResourceGetMappedPointer(&data, &num_bytes, pbo);
-    }
-
-    void unmap(){
-        cudaGraphicsUnmapResources(1, &pbo, 0);
-        data = NULL;
-    }
-
-    void * data;
-    struct cudaGraphicsResource *pbo;
-    GLuint id;
-};
-
 template <typename OTHER>
 inline void image_copy( Ref & to, const OTHER & from, uint size ){
     to.data = from.data;
@@ -335,10 +300,6 @@ inline void image_copy( Device & to, const HostDevice & from, uint size ){
     cudaMemcpy(to.data, from.getDevice(), size, cudaMemcpyDeviceToDevice);
 }
 
-inline void image_copy( Device & to, const PBO & from, uint size ){
-    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
-}
-
 inline void image_copy( HostDevice & to, const Host & from, uint size ){
     cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
 }
@@ -349,10 +310,6 @@ inline void image_copy( HostDevice & to, const Device & from, uint size ){
 
 inline void image_copy( HostDevice & to, const HostDevice & from, uint size ){
     cudaMemcpy(to.data, from.data, size, cudaMemcpyHostToHost);
-}
-
-inline void image_copy( PBO & to, const Device & from, uint size ){
-    cudaMemcpy(to.data, from.data, size, cudaMemcpyDeviceToDevice);
 }
 
 template <typename T, typename Allocator = Ref>
