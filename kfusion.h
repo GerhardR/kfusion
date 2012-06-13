@@ -1,6 +1,16 @@
 #ifndef KFUSION_H
 #define KFUSION_H
 
+#if defined(__GNUC__)
+   // circumvent packaging problems in gcc 4.7.0
+   #undef _GLIBCXX_ATOMIC_BUILTINS 
+   #undef _GLIBCXX_USE_INT128 
+   
+   // need c headers for __int128 and uint16_t
+   #include <limits.h>
+   #include <stdint.h>
+#endif
+
 #include <iostream>
 #include <vector>
 
