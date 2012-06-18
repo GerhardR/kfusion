@@ -91,6 +91,10 @@ std::ostream & operator<<( std::ostream & out, const Matrix4 & m );
 Matrix4 operator*( const Matrix4 & A, const Matrix4 & B);
 Matrix4 inverse( const Matrix4 & A );
 
+inline __host__ __device__ float4 operator*( const Matrix4 & M, const float4 & v){
+    return make_float4( dot(M.data[0], v), dot(M.data[1], v), dot(M.data[2], v), dot(M.data[3], v));
+}
+
 inline __host__ __device__ float3 operator*( const Matrix4 & M, const float3 & v){
     return make_float3(
         dot(make_float3(M.data[0]), v) + M.data[0].w,
