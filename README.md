@@ -39,6 +39,7 @@ Todo
 
 Done
 -----
+- integration speed up
 - CMake build system (contributed by Hartmut Seichter)
 - fixed a substantial bug in tracking
 - improved raycasting by an implementation closer to the paper. This also seems to take care of the following issue:

@@ -106,8 +106,7 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
     if(interval.x < 0)
         return;
     interval = interval * (vol.size.z - 1);
-
-    for(pix.z = interval.x + 0.5; pix.z < interval.y; ++pix.z, pos += delta, cameraX += cameraDelta){
+    for(pix.z = ceil(interval.x); pix.z < floor(interval.y)+1; ++pix.z, pos += delta, cameraX += cameraDelta){
         const uint2 px = make_uint2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
         if(depth[px] == 0)
             continue;
