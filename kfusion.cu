@@ -37,59 +37,6 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, const Volume
     }
 }
 
-
-inline __host__ __device__ Matrix4 getFrustumMatrix( const float4 & k, const float nearPlane, const float farPlane, const uint2 size ){
-    Matrix4 f;
-    float left =           -k.z  / k.x;
-    float right = (size.x - k.z) / k.x;
-    float top =             -k.w / k.y;
-    float bottom =(size.y - k.w) / k.y;
-    
-    f.data[0] = make_float4( 2*nearPlane / (right - left), 0, -(right+left)/(right - left), 0);
-    f.data[1] = make_float4( 0, 2*nearPlane / (top - bottom), -(top+bottom)/(top - bottom), 0);
-    f.data[2] = make_float4( 0, 0, (farPlane + nearPlane)/(farPlane - nearPlane), -2*farPlane*nearPlane/(farPlane - nearPlane));
-    f.data[3] = make_float4(0, 0, 1, 0);
-    
-    return f;
-}
-inline __host__ __device__ float2 intersectPlane( float2 interval, const float A, const float B, const float D){
-    if(A * B < 0 && D != 0) {
-        const float t = A / D;
-        if(A < 0)
-            interval.x = fmaxf(t, interval.x);
-        else
-            interval.y = fminf(t, interval.y);
-    }
-    return interval;
-}
-
-inline __host__ __device__ float2 intersectFrustum( const float4 & A, const float4 & B, const Matrix4 & F){
-    const float4 FA = F * A;
-    const float4 FB = F * B;
-    const float3 PA1 = make_float3(FA) + make_float3(FA.w);
-    const float3 PA2 = make_float3(FA.w) - make_float3(FA);
-    const float3 PB1 = make_float3(FB) + make_float3(FB.w);
-    const float3 PB2 = make_float3(FB.w) - make_float3(FB);
-    const float3 PD1 = PA1 - PB1;
-    const float3 PD2 = PA2 - PB2;
-        
-    if((PA1.x <= 0 && PB1.x <= 0) || (PA1.y <= 0 && PB1.y <= 0) || (PA1.z <= 0 && PB1.z <= 0) || 
-       (PA2.x <= 0 && PB2.x <= 0) || (PA2.y <= 0 && PB2.y <= 0) || (PA2.z <= 0 && PB2.z <= 0) ){
-        return make_float2(-1,-1);
-    }
-    
-    float2 interval = make_float2(0,1);
-    interval = intersectPlane(interval, PA1.x, PB1.x, PD1.x);
-    interval = intersectPlane(interval, PA1.y, PB1.y, PD1.y);
-    interval = intersectPlane(interval, PA1.z, PB1.z, PD1.z);
-    interval = intersectPlane(interval, PA2.x, PB2.x, PD2.x);
-    interval = intersectPlane(interval, PA2.y, PB2.y, PD2.y);
-    interval = intersectPlane(interval, PA2.z, PB2.z, PD2.z);
-    
-    if(interval.y < interval.x) interval =  make_float2(-1);
-    return interval;
-}
-
 __forceinline__ __device__ float sq( const float x ){
     return x*x;
 }
@@ -101,12 +48,12 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
     const float3 delta = rotate(invTrack, make_float3(0,0, vol.dim.z / vol.size.z));
     const float3 cameraDelta = rotate(K, delta);
 
-    const Matrix4 frustum = getFrustumMatrix(make_float4(K.data[0].x, K.data[0].z, K.data[1].y, K.data[1].z), 0.0001, 10, depth.size);
-    float2 interval = intersectFrustum( make_float4(pos, 1), make_float4(pos + delta * (vol.size.z - 1), 1), frustum);
-    if(interval.x < 0)
-        return;
-    interval = interval * (vol.size.z - 1);
-    for(pix.z = ceil(interval.x); pix.z < floor(interval.y)+1; ++pix.z, pos += delta, cameraX += cameraDelta){
+    for(pix.z = 0; pix.z < vol.size.z; ++pix.z, pos += delta, cameraX += cameraDelta){
+       if(pos.z < 0.0001f) // some near plane constraint
+            continue;
+        const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
+        if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
+            continue;
         const uint2 px = make_uint2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
         if(depth[px] == 0)
             continue;
