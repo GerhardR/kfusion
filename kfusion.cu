@@ -130,7 +130,7 @@ __global__ void bilateral_filter(Image<float> out, const Image<float> in, const 
         for(int j = -r; j <= r; ++j) {
             const float curPix = in[make_uint2(clamp(pos.x + i, 0u, in.size.x-1), clamp(pos.y + j, 0u, in.size.y-1))];
             if(curPix > 0){
-                const float mod = (curPix - center) * (curPix - center);
+                const float mod = sq(curPix - center);
                 const float factor = gaussian[make_uint2(i + r, 0)] * gaussian[make_uint2(j + r, 0)] * __expf(-mod / (2 * e_d * e_d));
                 t += factor * curPix;
                 sum += factor;

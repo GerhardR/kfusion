@@ -77,7 +77,7 @@ __global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const 
 }
 
 void renderDepthMap( Image<uchar3> out, const Image<float> & depth, const float nearPlane, const float farPlane ){
-    dim3 block(20,20);
+    dim3 block(32,16);
     renderDepth<<<divup(depth.size, block), block>>>( out, depth, nearPlane, farPlane );
 }
 
@@ -100,7 +100,7 @@ __global__ void renderTrack( Image<uchar4> out, const Image<TrackData> data ){
 }
 
 void renderTrackResult( Image<uchar4> out, const Image<TrackData> & data ){
-    dim3 block(20,20);
+    dim3 block(32,16);
     renderTrack<<<divup(out.size, block), block>>>( out, data );
 }
 
