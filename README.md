@@ -5,9 +5,11 @@ KFusion 0.3
 Copyright TU Graz, Gerhard Reitmayr, 2011 - 2012
 
 This is an implementation sketch of the KinectFusion system described by
-Newcombe et al. in "KinectFusion: Real-Time Dense Surface Mapping and Tracking",
+Richard Newcombe et al. in "KinectFusion: Real-Time Dense Surface Mapping and Tracking",
 ISMAR 2011, 2011. It is a dense surface reconstruction and tracking framework
 using a single Kinect camera as the input sensor.
+
+http://research.microsoft.com/en-us/projects/surfacerecon/
 
 KFusion is mainly written in CUDA with some interface code to display graphics output.
 
@@ -20,9 +22,9 @@ KFusion depends on the following libraries:
 * http://openkinect.org/
 * GLUT
 
-and of course the CUDA 4.1 SDK by NVidia
+and of course the CUDA 5 SDK by NVidia
 
-* http://developer.nvidia.com/category/zone/cuda-zone
+* http://developer.nvidia.com/cuda
 
 Install
 -----
