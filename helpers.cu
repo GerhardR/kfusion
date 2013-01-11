@@ -71,6 +71,29 @@ void renderLight( Image<uchar4> out, const Image<float3> & vertex, const Image<f
     renderLightKernel<<<divup(normal.size, block), block>>>( out, vertex, normal, light, ambient );
 }
 
+__global__ void renderTextureKernel( Image<uchar4> out, const Image<float3> vertex, const Image<float3> normal, const Image<uchar3> texture, const Matrix4 texproj, const float3 light){
+    if(normal.el().x == -2)
+        out.el() = make_uchar4(0,0,0,0);
+    else {
+        const float3 proj = texproj * vertex.el();
+        const float2 projPixel = make_float2( proj.x / proj.z + 0.5f, proj.y / proj.z + 0.5f);
+        
+        if(projPixel.x < 0 || projPixel.x > texture.size.x-1 || projPixel.y < 0 || projPixel.y > texture.size.y-1 ){
+            const float3 diff = normalize(light - vertex.el());
+            const float dir = fmaxf(dot(normal.el(), diff), 0.f) * 255;
+            out.el() = make_uchar4(dir,dir,dir,255);
+        } else {
+            const uchar3 texcol = texture[make_uint2(projPixel.x, projPixel.y)];
+            out.el() = make_uchar4(texcol.x, texcol.y, texcol.z, 255);
+        }
+    }
+}
+
+void renderTexture( Image<uchar4> out, const Image<float3> & vertex, const Image<float3> & normal, const Image<uchar3> & texture, const Matrix4 & texproj, const float3 light){
+    dim3 block(32,16);
+    renderTextureKernel<<<divup(normal.size, block), block>>>( out, vertex, normal, texture, texproj, light);
+}
+
 __global__ void renderDepth( Image<uchar3> out, const Image<float> depth, const float nearPlane, const float farPlane){
     const float d = (clamp(depth.el(), nearPlane, farPlane) - nearPlane) / (farPlane - nearPlane);
     out.el() = make_uchar3(d * 255, d * 255, d * 255);
