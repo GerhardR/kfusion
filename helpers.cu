@@ -42,7 +42,7 @@ void setSphereWrap(Volume volume, const float3 center, const float radius, const
 
 __global__ void renderNormals( Image<uchar3> out, const Image<float3> in ){
     float3 n = in.el();
-    if(length(n) < 0.000001f)
+    if(n.x == -2)
         out.el() = make_uchar3(0,0,0);
     else {
         n = normalize(n);
@@ -56,13 +56,13 @@ void renderNormalMap( Image<uchar3> out, const Image<float3> & normal ){
 }
 
 __global__ void renderLightKernel( Image<uchar4> out, const Image<float3> vertex, const Image<float3> normal, const float3 light, const float3 ambient ){
-    if(normal.el().z == -2)
+    if(normal.el().x == -2)
         out.el() = make_uchar4(0,0,0,0);
     else {
         const float3 diff = normalize(light - vertex.el());
         const float dir = fmaxf(dot(normal.el(), diff), 0.f);
         const float3 col = clamp(make_float3(dir) + ambient, 0.f, 1.f) * 255;
-        out.el() = make_uchar4(col.x, col.y, col.z, 1);
+        out.el() = make_uchar4(col.x, col.y, col.z, 255);
     }
 }
 

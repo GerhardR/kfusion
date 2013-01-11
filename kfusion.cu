@@ -33,7 +33,7 @@ __global__ void raycast( Image<float3> pos3D, Image<float3> normal, const Volume
         }
     } else {
         pos3D[pos] = make_float3(0);
-        normal[pos] = make_float3(0);
+        normal[pos] = make_float3(INVALID, 0, 0);
     }
 }
 
