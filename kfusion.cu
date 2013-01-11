@@ -100,17 +100,10 @@ __global__ void vertex2normal( Image<float3> normal, const Image<float3> vertex 
     normal[pixel] = normalize(cross(dyv, dxv)); // switched dx and dy to get factor -1
 }
 
-__forceinline__ __device__ float raw2depth( float d ){
-    return clamp( 1.0f / (d * -0.0030711016f + 3.3309495161f), 0.f, 30.f);
-}
-
-__global__ void raw2cooked( Image<float> depth, const Image<ushort> in ){
-    depth.el() = raw2depth(in.el());
-}
-
-__global__ void raw2cookedHalfSampled( Image<float> depth, const Image<ushort> in ){
+template <int HALFSAMPLE>
+__global__ void mm2meters( Image<float> depth, const Image<ushort> in ){
     const uint2 pixel = thr2pos2();
-    depth[pixel] = raw2depth(in[pixel * 2]);
+    depth[pixel] = in[pixel * (HALFSAMPLE+1)] / 1000.0f;
 }
 
 //column pass using coalesced global memory reads
@@ -437,13 +430,17 @@ void KFusion::Clear(){
 
 void KFusion::setPose( const Matrix4 & p ){
     pose = p;
+    renderPose.data[0] = make_float4(1,0,0,0);
+    renderPose.data[1] = make_float4(0,1,0,0);
+    renderPose.data[2] = make_float4(0,0,1,0);
+    renderPose.data[3] = make_float4(0,0,0,1);
 }
 
-void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in ){
+void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in){
     if(configuration.inputSize.x == in.size.x)
-        raw2cooked<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
+        mm2meters<0><<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>(rawDepth, in);
     else if(configuration.inputSize.x == in.size.x / 2 )
-        raw2cookedHalfSampled<<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>( rawDepth, in );
+        mm2meters<1><<<divup(rawDepth.size, configuration.imageBlock), configuration.imageBlock>>>(rawDepth, in);
     else
         assert(false);
 }
@@ -510,8 +507,14 @@ bool KFusion::Track() {
         grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
-
+    static int count = 2;
+    if(count > 1){
+        renderPose = pose;
+        raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, renderPose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+        count = 0;
+    } else
+        count++;
+    
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
 
@@ -526,7 +529,7 @@ bool KFusion::Track() {
     }
 
     const Matrix4 oldPose = pose;
-    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(pose);
+    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(renderPose);
 
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){

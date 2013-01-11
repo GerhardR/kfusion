@@ -434,7 +434,7 @@ struct KFusion {
 
     KFusionConfig configuration;
 
-    Matrix4 pose;
+    Matrix4 pose, renderPose;
 
     void Init( const KFusionConfig & config ); // allocates the volume and image data on the device
     void Clear();  // releases the allocated device memory
@@ -449,7 +449,7 @@ struct KFusion {
         rawDepth = depth;
     }
 
-    void setKinectDeviceDepth( const Image<uint16_t> & ); // passes in raw 11-bit kinect data reciding on the device
+    void setKinectDeviceDepth( const Image<uint16_t> & ); // passes in depth image in mm in 16-bit unsigned integers reciding on the device
 
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose

@@ -1,5 +1,5 @@
 
-KFusion 0.3
+KFusion 0.3.1
 =============
 
 Copyright TU Graz, Gerhard Reitmayr, 2011 - 2012
@@ -41,6 +41,8 @@ Todo
 
 Done
 -----
+- rendering with static model view + projected RGB
+- registered depth input from libfreenect, uses more time unfortunately
 - integration speed up
 - CMake build system (contributed by Hartmut Seichter)
 - fixed a substantial bug in tracking

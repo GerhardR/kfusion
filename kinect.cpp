@@ -16,18 +16,20 @@
 using namespace std;
 using namespace TooN;
 
-#include <libfreenect/libfreenect.h>
+#include <libfreenect.h>
+#include <libfreenect-registration.h>
 
 freenect_context *f_ctx;
 freenect_device *f_dev;
 bool gotDepth;
+freenect_registration registration;
 
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
     gotDepth = true;
 }
 
-int InitKinect( uint16_t * buffer ){
+int InitKinect( uint16_t * buffer, void * rgb_buffer ){
     if (freenect_init(&f_ctx, NULL) < 0) {
         cout << "freenect_init() failed" << endl;
         return 1;
@@ -48,13 +50,24 @@ int InitKinect( uint16_t * buffer ){
     }
 
     freenect_set_depth_callback(f_dev, depth_cb);
-    freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_11BIT));
+    freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED));
     freenect_set_depth_buffer(f_dev, buffer);
+    
+    // freenect_set_video_callback(f_dev, rgb_cb);
+    freenect_set_video_mode(f_dev, freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB));
+    freenect_set_video_buffer(f_dev, rgb_buffer);
+    
     freenect_start_depth(f_dev);
+    freenect_start_video(f_dev);
+    registration = freenect_copy_registration(f_dev);
 
     gotDepth = false;
 
     return 0;
+}
+
+float GetFocalLength() {
+    return registration.zero_plane_info.reference_distance / (2 * registration.zero_plane_info.reference_pixel_size );
 }
 
 void CloseKinect(){
@@ -70,16 +83,20 @@ void DepthFrameKinect() {
 }
 
 KFusion kfusion;
-Image<uchar4, HostDevice> lightScene, depth, lightModel;
+Image<uchar4, HostDevice> lightScene, depth, lightModel, texModel;
 Image<uint16_t, HostDevice> depthImage;
+Image<uchar3, HostDevice> rgbImage;
 
-const float3 light = make_float3(1.0, -2, 1.0);
+const float3 light = make_float3(-2.0, -2.0, 0);
 const float3 ambient = make_float3(0.1, 0.1, 0.1);
 
 SE3<float> initPose;
 
 int counter = 0;
 bool reset = true;
+
+Image<float3, Device> pos, normals;
+Image<float, Device> dep;
 
 void display(void){
     const uint2 imageSize = kfusion.configuration.inputSize;
@@ -106,6 +123,13 @@ void display(void){
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
     renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
+    static int count = 4;
+    if(count > 3){
+        renderInput( pos, normals, dep, kfusion.integration, toMatrix4(SE3<float>::exp(makeVector(1.0, 1.0, -1.0, 0, 0, 0))) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
+        count = 0;
+    } else
+        count++;
+    renderTexture( texModel.getDeviceImage(), pos, normals, rgbImage.getDeviceImage(), getCameraMatrix(kfusion.configuration.camera * 2) * inverse(kfusion.pose), light);
     cudaDeviceSynchronize();
 
     Stats.sample("render");
@@ -117,6 +141,8 @@ void display(void){
     glDrawPixels(depth);
     glRasterPos2i(0,imageSize.y * 1);
     glDrawPixels(lightModel);
+    glRasterPos2i(imageSize.x, imageSize.y);
+    glDrawPixels(texModel);
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
@@ -190,8 +216,7 @@ int main(int argc, char ** argv) {
     config.combinedTrackAndReduce = false;
 
     // change the following parameters for using 640 x 480 input images
-    config.inputSize = make_uint2(320,240); 
-    config.camera =  make_float4(297.12732, 296.24240, 169.89365, 121.25151);
+    config.inputSize = make_uint2(320,240);
 
     // config.iterations is a vector<int>, the length determines
     // the number of levels to be used in tracking
@@ -206,12 +231,11 @@ int main(int argc, char ** argv) {
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
+    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE );
     glutInitWindowSize(config.inputSize.x * 2, config.inputSize.y * 2);
     glutCreateWindow("kfusion");
 
     kfusion.Init(config);
-    if(printCUDAError())
     if(printCUDAError()) {
         cudaDeviceReset();
         exit(1);
@@ -219,12 +243,22 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose(toMatrix4(initPose));
 
-    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize);
+    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize), texModel.alloc(config.inputSize);
     depthImage.alloc(make_uint2(640, 480));
+    rgbImage.alloc(make_uint2(640, 480));
+    memset(depthImage.data(), 0, depthImage.size.x*depthImage.size.y * sizeof(uint16_t));
+    memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
-    if(InitKinect(depthImage.data()))
+    pos.alloc(config.inputSize), normals.alloc(config.inputSize), dep.alloc(config.inputSize);
+
+    if(InitKinect(depthImage.data(), rgbImage.data())){
         cudaDeviceReset();
         exit(1);
+    }
+
+    // get focal length from Kinect
+    const float focal_length = GetFocalLength();
+    config.camera =  make_float4(focal_length/2, focal_length/2, 640/4, 480/4);
 
     atexit(exitFunc);
     glutDisplayFunc(display);
