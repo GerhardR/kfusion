@@ -430,10 +430,6 @@ void KFusion::Clear(){
 
 void KFusion::setPose( const Matrix4 & p ){
     pose = p;
-    renderPose.data[0] = make_float4(1,0,0,0);
-    renderPose.data[1] = make_float4(0,1,0,0);
-    renderPose.data[2] = make_float4(0,0,1,0);
-    renderPose.data[3] = make_float4(0,0,0,1);
 }
 
 void KFusion::setKinectDeviceDepth( const Image<uint16_t> & in){
@@ -507,13 +503,7 @@ bool KFusion::Track() {
         grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
     // raycast integration volume into the depth, vertex, normal buffers
-    static int count = 2;
-    if(count > 1){
-        renderPose = pose;
-        raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, renderPose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
-        count = 0;
-    } else
-        count++;
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
     
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
@@ -529,7 +519,7 @@ bool KFusion::Track() {
     }
 
     const Matrix4 oldPose = pose;
-    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(renderPose);
+    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(pose);
 
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){
