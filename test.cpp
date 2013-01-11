@@ -195,6 +195,11 @@ int main(int argc, char ** argv) {
     config.normal_threshold = 0.8f;
 
     kfusion.Init(config);
+    if(printCUDAError()){
+        cudaDeviceReset();
+        exit(1);
+    }
+
     reference.init(config.volumeSize, config.volumeDimensions);
 
     initVolumeWrap(reference, 1.0f);
@@ -222,6 +227,8 @@ int main(int argc, char ** argv) {
     glutIdleFunc(idle);
 
     glutMainLoop();
+
+    cudaDeviceReset();
 
     return 0;
 }

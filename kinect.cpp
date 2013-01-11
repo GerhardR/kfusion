@@ -212,7 +212,10 @@ int main(int argc, char ** argv) {
 
     kfusion.Init(config);
     if(printCUDAError())
+    if(printCUDAError()) {
+        cudaDeviceReset();
         exit(1);
+    }
 
     kfusion.setPose(toMatrix4(initPose));
 
@@ -220,6 +223,7 @@ int main(int argc, char ** argv) {
     depthImage.alloc(make_uint2(640, 480));
 
     if(InitKinect(depthImage.data()))
+        cudaDeviceReset();
         exit(1);
 
     atexit(exitFunc);
@@ -229,6 +233,8 @@ int main(int argc, char ** argv) {
     glutIdleFunc(idle);
 
     glutMainLoop();
+
+    CloseKinect();
 
     return 0;
 }
