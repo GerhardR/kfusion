@@ -234,8 +234,8 @@ int main(int argc, char ** argv) {
     // it is enough now to set the volume resolution once.
     // everything else is derived from that.
     // config.volumeSize = make_uint3(64);
-    config.volumeSize = make_uint3(128);
-    // config.volumeSize = make_uint3(256);
+    // config.volumeSize = make_uint3(128);
+    config.volumeSize = make_uint3(256);
 
     // these are physical dimensions in meters
     config.volumeDimensions = make_float3(size);
