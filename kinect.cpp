@@ -19,17 +19,42 @@ using namespace TooN;
 #include <libfreenect.h>
 #include <libfreenect-registration.h>
 
+#include <pthread.h>
+
 freenect_context *f_ctx;
 freenect_device *f_dev;
 bool gotDepth;
+int depth_index;
 freenect_registration registration;
+
+pthread_t freenect_thread;
+volatile bool die = false;
+
+uint16_t * buffers[2];
 
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
     gotDepth = true;
+    depth_index = (depth_index+1) % 2;
+    freenect_set_depth_buffer(dev, buffers[depth_index]);
 }
 
-int InitKinect( uint16_t * buffer, void * rgb_buffer ){
+void *freenect_threadfunc(void *arg)
+{
+    while(!die){
+        int res = freenect_process_events(f_ctx);
+        if (res < 0 && res != -10) {
+            cout << "\nError "<< res << " received from libusb - aborting.\n";
+            break;
+        }
+    }
+    freenect_stop_depth(f_dev);
+    freenect_stop_video(f_dev);
+    freenect_close_device(f_dev);
+    freenect_shutdown(f_ctx);
+}
+
+int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
     if (freenect_init(&f_ctx, NULL) < 0) {
         cout << "freenect_init() failed" << endl;
         return 1;
@@ -49,9 +74,12 @@ int InitKinect( uint16_t * buffer, void * rgb_buffer ){
         return 1;
     }
 
+    depth_index = 0;
+    buffers[0] = depth_buffer[0];
+    buffers[1] = depth_buffer[1];
     freenect_set_depth_callback(f_dev, depth_cb);
     freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED));
-    freenect_set_depth_buffer(f_dev, buffer);
+    freenect_set_depth_buffer(f_dev, buffers[depth_index]);
     
     // freenect_set_video_callback(f_dev, rgb_cb);
     freenect_set_video_mode(f_dev, freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB));
@@ -63,6 +91,12 @@ int InitKinect( uint16_t * buffer, void * rgb_buffer ){
 
     gotDepth = false;
 
+    int res = pthread_create(&freenect_thread, NULL, freenect_threadfunc, NULL);
+    if(res){
+        cout << "error starting kinect thread " << res << endl;
+        return 1;
+    }
+
     return 0;
 }
 
@@ -71,20 +105,13 @@ float GetFocalLength() {
 }
 
 void CloseKinect(){
-    freenect_stop_depth(f_dev);
-    freenect_close_device(f_dev);
-    freenect_shutdown(f_ctx);
-}
-
-void DepthFrameKinect() {
-    while (!gotDepth && freenect_process_events(f_ctx) >= 0){
-    }
-    gotDepth = false;
+    die = true;
+    pthread_join(freenect_thread, NULL);
 }
 
 KFusion kfusion;
 Image<uchar4, HostDevice> lightScene, depth, lightModel, texModel;
-Image<uint16_t, HostDevice> depthImage;
+Image<uint16_t, HostDevice> depthImage[2];
 Image<uchar3, HostDevice> rgbImage;
 
 const float3 light = make_float3(-2.0, -2.0, 0);
@@ -105,11 +132,9 @@ void display(void){
 
     glClear( GL_COLOR_BUFFER_BIT );
     const double startFrame = Stats.start();
-
-    DepthFrameKinect();
     const double startProcessing = Stats.sample("kinect");
 
-    kfusion.setKinectDeviceDepth(depthImage.getDeviceImage());
+    kfusion.setKinectDeviceDepth(depthImage[!depth_index].getDeviceImage());
     Stats.sample("raw to cooked");
 
     integrate = kfusion.Track();
@@ -164,7 +189,10 @@ void display(void){
 }
 
 void idle(void){
-    glutPostRedisplay();
+    if(gotDepth){
+        gotDepth = false;
+        glutPostRedisplay();
+    }
 }
 
 void keys(unsigned char key, int x, int y){
@@ -245,14 +273,17 @@ int main(int argc, char ** argv) {
     kfusion.setPose(toMatrix4(initPose));
 
     lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize), texModel.alloc(config.inputSize);
-    depthImage.alloc(make_uint2(640, 480));
+    depthImage[0].alloc(make_uint2(640, 480));
+    depthImage[1].alloc(make_uint2(640, 480));
     rgbImage.alloc(make_uint2(640, 480));
-    memset(depthImage.data(), 0, depthImage.size.x*depthImage.size.y * sizeof(uint16_t));
+    memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
+    memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
     pos.alloc(config.inputSize), normals.alloc(config.inputSize), dep.alloc(config.inputSize);
 
-    if(InitKinect(depthImage.data(), rgbImage.data())){
+    uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
+    if(InitKinect(buffers, rgbImage.data())){
         cudaDeviceReset();
         exit(1);
     }
