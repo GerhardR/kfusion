@@ -122,6 +122,7 @@ SE3<float> initPose;
 int counter = 0;
 int integration_rate = 2;
 bool reset = true;
+bool should_integrate = true;
 
 Image<float3, Device> pos, normals;
 Image<float, Device> dep;
@@ -140,7 +141,7 @@ void display(void){
     integrate = kfusion.Track();
     Stats.sample("track");
 
-    if((integrate && ((counter % integration_rate) == 0)) || reset){
+    if((should_integrate && integrate && ((counter % integration_rate) == 0)) || reset){
         kfusion.Integrate();
         Stats.sample("integrate");
         reset = false;
@@ -204,6 +205,9 @@ void keys(unsigned char key, int x, int y){
         break;
     case 'q':
         exit(0);
+        break;
+    case 'i':
+        should_integrate = !should_integrate;
         break;
     }
 }
