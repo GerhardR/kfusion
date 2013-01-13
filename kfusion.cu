@@ -225,7 +225,7 @@ __global__ void reduce( float * out, const Image<TrackData> J, const uint2 size)
             if(row.result < 1){
                 info[1] += row.result == -4 ? 1 : 0;
                 info[2] += row.result == -5 ? 1 : 0;
-                info[3] += row.result == -2 || row.result == -3 ? 1 : 0;
+                info[3] += row.result > -4 ? 1 : 0;
                 continue;
             }
 
@@ -540,7 +540,9 @@ bool KFusion::Track() {
                 break;
         }
     }
-    if(sqrt(values(0,0) / values(0,28)) > 2e-2){
+
+    // test on both RSME per pixel and percent of pixels tracked
+    if((sqrt(values(0,0) / values(0,28)) > 2e-2) || (values(0,28) / (rawDepth.size.x * rawDepth.size.y) < 0.2) ){
         pose = oldPose;
         return false;
     }
