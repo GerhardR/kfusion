@@ -434,7 +434,7 @@ struct KFusion {
 
     KFusionConfig configuration;
 
-    Matrix4 pose;
+    Matrix4 pose, raycastPose;
 
     void Init( const KFusionConfig & config ); // allocates the volume and image data on the device
     void Clear();  // releases the allocated device memory

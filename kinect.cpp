@@ -93,6 +93,7 @@ const float3 ambient = make_float3(0.1, 0.1, 0.1);
 SE3<float> initPose;
 
 int counter = 0;
+int integration_rate = 2;
 bool reset = true;
 
 Image<float3, Device> pos, normals;
@@ -114,11 +115,11 @@ void display(void){
     integrate = kfusion.Track();
     Stats.sample("track");
 
-        if(integrate || reset){
-            kfusion.Integrate();
-            Stats.sample("integrate");
-            reset = false;
-        }
+    if((integrate && ((counter % integration_rate) == 0)) || reset){
+        kfusion.Integrate();
+        Stats.sample("integrate");
+        reset = false;
+    }
 
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );

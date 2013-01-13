@@ -502,9 +502,6 @@ bool KFusion::Track() {
     for(int i = 0; i < configuration.iterations.size(); ++i)
         grids.push_back(divup(configuration.inputSize >> i, configuration.imageBlock));
 
-    // raycast integration volume into the depth, vertex, normal buffers
-    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * invK, configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
-    
     // filter the input depth map
     bilateral_filter<<<grids[0], configuration.imageBlock>>>(inputDepth[0], rawDepth, gaussian, configuration.e_delta, configuration.radius);
 
@@ -519,7 +516,7 @@ bool KFusion::Track() {
     }
 
     const Matrix4 oldPose = pose;
-    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(pose);
+    const Matrix4 projectReference = getCameraMatrix(configuration.camera) * inverse(raycastPose);
 
     TooN::Matrix<8, 32, float, TooN::Reference::RowMajor> values(output.data());
     for(int level = configuration.iterations.size()-1; level >= 0; --level){
@@ -551,6 +548,9 @@ bool KFusion::Track() {
 
 void KFusion::Integrate() {
     integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, inverse(pose), getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
+    // raycast integration volume into the depth, vertex, normal buffers
+    raycastPose = pose;
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * getInverseCameraMatrix(configuration.camera), configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 }
 
 int printCUDAError() {
