@@ -495,6 +495,12 @@ TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
     return svd.backsub(b, 1e6);
 }
 
+void KFusion::Raycast(){
+    // raycast integration volume into the depth, vertex, normal buffers
+    raycastPose = pose;
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, raycastPose * getInverseCameraMatrix(configuration.camera), configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+}
+
 bool KFusion::Track() {
     const Matrix4 invK = getInverseCameraMatrix(configuration.camera);
 
@@ -539,7 +545,7 @@ bool KFusion::Track() {
     }
 
     // test on both RSME per pixel and percent of pixels tracked
-    if((sqrt(values(0,0) / values(0,28)) > 2e-2) || (values(0,28) / (rawDepth.size.x * rawDepth.size.y) < 0.2) ){
+    if((sqrt(values(0,0) / values(0,28)) > 2e-2) || (values(0,28) / (rawDepth.size.x * rawDepth.size.y) < configuration.track_threshold) ){
         pose = oldPose;
         return false;
     }
@@ -548,9 +554,6 @@ bool KFusion::Track() {
 
 void KFusion::Integrate() {
     integrate<<<divup(dim3(integration.size.x, integration.size.y), configuration.imageBlock), configuration.imageBlock>>>( integration, rawDepth, inverse(pose), getCameraMatrix(configuration.camera), configuration.mu, configuration.maxweight );
-    // raycast integration volume into the depth, vertex, normal buffers
-    raycastPose = pose;
-    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, pose * getInverseCameraMatrix(configuration.camera), configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
 }
 
 int printCUDAError() {

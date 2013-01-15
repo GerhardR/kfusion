@@ -59,14 +59,22 @@ void display(void) {
         Stats.sample("track");
     }
 
-    vertex = kfusion.vertex;
-    normal = kfusion.normal;
-    Stats.sample("track get");
-
     renderTrackResult(rgb.getDeviceImage(), kfusion.reduction);
     cudaDeviceSynchronize();
     Stats.sample("track render");
     Stats.sample("track copy");
+
+    if(integrate){
+        kfusion.Integrate();
+        cudaDeviceSynchronize();
+        Stats.sample("integration");
+        kfusion.Raycast();
+        cudaDeviceSynchronize();
+        Stats.sample("raycast");
+        vertex = kfusion.vertex;
+        normal = kfusion.normal;
+        Stats.sample("raycast get");
+    }
 
     glRasterPos2i(0,imageSize.y * 1);
     glDrawPixels(vertex);
@@ -76,11 +84,6 @@ void display(void) {
     glDrawPixels(rgb);
     Stats.sample("track draw");
 
-    if(integrate){
-        kfusion.Integrate();
-        cudaDeviceSynchronize();
-        Stats.sample("integration");
-    }
     Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
 
     renderInput(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.7 * kfusion.configuration.mu );

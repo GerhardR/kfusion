@@ -43,6 +43,7 @@ struct KFusionConfig {
     float dist_threshold;       // 3D distance threshold for ICP correspondences
     float normal_threshold;     // dot product normal threshold for ICP correspondences
     std::vector<int> iterations;  // max number of iterations per level
+    float track_threshold;      // percent of tracked pixels to accept tracking result
 
     dim3 imageBlock;            // block size for image operations
     dim3 raycastBlock;          // block size for raycasting
@@ -70,6 +71,7 @@ struct KFusionConfig {
         iterations.push_back( 5 );
         iterations.push_back( 5 );
         iterations.push_back( 5 );
+        track_threshold = 0.15;
 
         imageBlock = dim3(32,16);
         raycastBlock = dim3(32,8);
@@ -451,6 +453,7 @@ struct KFusion {
 
     void setKinectDeviceDepth( const Image<uint16_t> & ); // passes in depth image in mm in 16-bit unsigned integers reciding on the device
 
+    void Raycast(); // Raycast the reference images to track against from the current pose
     bool Track(); // Estimates new camera position based on the last depth map set and the volume
     void Integrate(); // Integrates the current depth map using the current camera pose
 };

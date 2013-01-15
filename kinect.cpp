@@ -143,6 +143,7 @@ void display(void){
 
     if((should_integrate && integrate && ((counter % integration_rate) == 0)) || reset){
         kfusion.Integrate();
+        kfusion.Raycast();
         Stats.sample("integrate");
         reset = false;
     }
