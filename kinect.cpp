@@ -80,8 +80,7 @@ int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
     freenect_set_depth_callback(f_dev, depth_cb);
     freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED));
     freenect_set_depth_buffer(f_dev, buffers[depth_index]);
-    
-    // freenect_set_video_callback(f_dev, rgb_cb);
+
     freenect_set_video_mode(f_dev, freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB));
     freenect_set_video_buffer(f_dev, rgb_buffer);
     
@@ -98,10 +97,6 @@ int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
     }
 
     return 0;
-}
-
-float GetFocalLength() {
-    return registration.zero_plane_info.reference_distance / (2 * registration.zero_plane_info.reference_pixel_size );
 }
 
 void CloseKinect(){
@@ -123,6 +118,7 @@ int counter = 0;
 int integration_rate = 2;
 bool reset = true;
 bool should_integrate = true;
+bool render_texture = true;
 
 Image<float3, Device> pos, normals;
 Image<float, Device> dep;
@@ -148,29 +144,30 @@ void display(void){
         reset = false;
     }
 
-    renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
-    renderTrackResult( depth.getDeviceImage(), kfusion.reduction );
     static int count = 4;
     if(count > 3){
-        renderInput( pos, normals, dep, kfusion.integration, toMatrix4(SE3<float>::exp(makeVector(1.0, 1.0, -1.0, 0, 0, 0))) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
+        renderInput( pos, normals, dep, kfusion.integration, toMatrix4(SE3<float>::exp(makeVector(kfusion.configuration.volumeDimensions.x/2, kfusion.configuration.volumeDimensions.x/2, -kfusion.configuration.volumeDimensions.x/2.0, 0, 0, 0))) * getInverseCameraMatrix(kfusion.configuration.camera * 2), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
         count = 0;
     } else
         count++;
-    renderTexture( texModel.getDeviceImage(), pos, normals, rgbImage.getDeviceImage(), getCameraMatrix(kfusion.configuration.camera * 2) * inverse(kfusion.pose), light);
+    if(render_texture)
+        renderTexture( texModel.getDeviceImage(), pos, normals, rgbImage.getDeviceImage(), getCameraMatrix(2*kfusion.configuration.camera) * inverse(kfusion.pose), light);
+    else
+        renderLight( texModel.getDeviceImage(), pos, normals, light, ambient);
     cudaDeviceSynchronize();
 
     Stats.sample("render");
 
     glClear(GL_COLOR_BUFFER_BIT);
-    glRasterPos2i(0,imageSize.y * 0);
-    glDrawPixels(lightScene);
-    glRasterPos2i(imageSize.x, imageSize.y * 0);
-    glDrawPixels(depth);
-    glRasterPos2i(0,imageSize.y * 1);
-    glDrawPixels(lightModel);
-    glRasterPos2i(imageSize.x, imageSize.y);
+    glRasterPos2i(320, 0);
     glDrawPixels(texModel);
+    glRasterPos2i(0, 0);
+    glDrawPixels(lightScene);
+    glRasterPos2i(0, 240);
+    glPixelZoom(0.5, -0.5);
+    glDrawPixels(rgbImage);
+    glPixelZoom(1,-1);
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
@@ -210,6 +207,9 @@ void keys(unsigned char key, int x, int y){
     case 'i':
         should_integrate = !should_integrate;
         break;
+    case 't':
+        render_texture = !render_texture;
+        break;
     }
 }
 
@@ -247,10 +247,11 @@ int main(int argc, char ** argv) {
     config.nearPlane = 0.4f;
     config.farPlane = 5.0f;
     config.mu = 0.1;
-    config.combinedTrackAndReduce = false;
+    config.combinedTrackAndReduce = true;
 
     // change the following parameters for using 640 x 480 input images
     config.inputSize = make_uint2(320,240);
+    config.camera =  make_float4(530.0/2, 530.0/2, 640/4, 480/4);
 
     // config.iterations is a vector<int>, the length determines
     // the number of levels to be used in tracking
@@ -266,7 +267,7 @@ int main(int argc, char ** argv) {
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE );
-    glutInitWindowSize(config.inputSize.x * 2, config.inputSize.y * 2);
+    glutInitWindowSize(config.inputSize.x * 3, config.inputSize.y * 2);
     glutCreateWindow("kfusion");
 
     kfusion.Init(config);
@@ -277,7 +278,7 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose(toMatrix4(initPose));
 
-    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize), texModel.alloc(config.inputSize);
+    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize);
     depthImage[0].alloc(make_uint2(640, 480));
     depthImage[1].alloc(make_uint2(640, 480));
     rgbImage.alloc(make_uint2(640, 480));
@@ -285,17 +286,13 @@ int main(int argc, char ** argv) {
     memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
-    pos.alloc(config.inputSize), normals.alloc(config.inputSize), dep.alloc(config.inputSize);
+    pos.alloc(make_uint2(640, 480)), normals.alloc(make_uint2(640, 480)), dep.alloc(make_uint2(640, 480)), texModel.alloc(make_uint2(640, 480));
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
     if(InitKinect(buffers, rgbImage.data())){
         cudaDeviceReset();
         exit(1);
     }
-
-    // get focal length from Kinect
-    const float focal_length = GetFocalLength();
-    config.camera =  make_float4(focal_length/2, focal_length/2, 640/4, 480/4);
 
     atexit(exitFunc);
     glutDisplayFunc(display);
