@@ -56,8 +56,8 @@ void renderNormalMap( Image<uchar3> out, const Image<float3> & normal ){
 }
 
 __global__ void renderLightKernel( Image<uchar4> out, const Image<float3> vertex, const Image<float3> normal, const float3 light, const float3 ambient ){
-    if(normal.el().x == -2)
-        out.el() = make_uchar4(0,0,0,0);
+    if(normal.el().x == -2.0f)
+        out.el() = make_uchar4(0,0,0,255);
     else {
         const float3 diff = normalize(light - vertex.el());
         const float dir = fmaxf(dot(normal.el(), diff), 0.f);
@@ -72,19 +72,19 @@ void renderLight( Image<uchar4> out, const Image<float3> & vertex, const Image<f
 }
 
 __global__ void renderTextureKernel( Image<uchar4> out, const Image<float3> vertex, const Image<float3> normal, const Image<uchar3> texture, const Matrix4 texproj, const float3 light){
-    if(normal.el().x == -2)
-        out.el() = make_uchar4(0,0,0,0);
+    if(normal.el().x == -2.0f)
+        out.el() = make_uchar4(0,0,0,255);
     else {
         const float3 proj = texproj * vertex.el();
         const float2 projPixel = make_float2( proj.x / proj.z + 0.5f, proj.y / proj.z + 0.5f);
         
+        const float3 diff = normalize(light - vertex.el());
+        const float dir = fmaxf(dot(normal.el(), diff), 0.f); // * 255;
         if(projPixel.x < 0 || projPixel.x > texture.size.x-1 || projPixel.y < 0 || projPixel.y > texture.size.y-1 ){
-            const float3 diff = normalize(light - vertex.el());
-            const float dir = fmaxf(dot(normal.el(), diff), 0.f) * 255;
-            out.el() = make_uchar4(dir,dir,dir,255);
+            out.el() = make_uchar4(dir*255,dir*255,dir*255,255);
         } else {
             const uchar3 texcol = texture[make_uint2(projPixel.x, projPixel.y)];
-            out.el() = make_uchar4(texcol.x, texcol.y, texcol.z, 255);
+            out.el() = make_uchar4(texcol.x*dir, texcol.y*dir, texcol.z*dir, 255);
         }
     }
 }

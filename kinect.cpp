@@ -109,7 +109,7 @@ Image<uchar4, HostDevice> lightScene, depth, lightModel, texModel;
 Image<uint16_t, HostDevice> depthImage[2];
 Image<uchar3, HostDevice> rgbImage;
 
-const float3 light = make_float3(-2.0, -2.0, 0);
+const float3 light = make_float3(1, 1, -1.0);
 const float3 ambient = make_float3(0.1, 0.1, 0.1);
 
 SE3<float> initPose;
@@ -118,10 +118,15 @@ int counter = 0;
 int integration_rate = 2;
 bool reset = true;
 bool should_integrate = true;
-bool render_texture = true;
+bool render_texture = false;
 
 Image<float3, Device> pos, normals;
 Image<float, Device> dep;
+
+SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
+SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
+SE3<float> trans(makeVector(0.5, 0.5, 0.5, 0, 0, 0));
+bool redraw_big_view = false;
 
 void display(void){
     const uint2 imageSize = kfusion.configuration.inputSize;
@@ -146,9 +151,10 @@ void display(void){
 
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
     static int count = 4;
-    if(count > 3){
-        renderInput( pos, normals, dep, kfusion.integration, toMatrix4(SE3<float>::exp(makeVector(kfusion.configuration.volumeDimensions.x/2, kfusion.configuration.volumeDimensions.x/2, -kfusion.configuration.volumeDimensions.x/2.0, 0, 0, 0))) * getInverseCameraMatrix(kfusion.configuration.camera * 2), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
+    if(count > 3 || redraw_big_view){
+        renderInput( pos, normals, dep, kfusion.integration, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera * 2), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
         count = 0;
+        redraw_big_view = false;
     } else
         count++;
     if(render_texture)
@@ -213,6 +219,24 @@ void keys(unsigned char key, int x, int y){
     }
 }
 
+void specials(int key, int x, int y){
+    switch(key){
+    case GLUT_KEY_LEFT:
+        rot = SE3<float>(makeVector(0.0, 0, 0, 0, 0.1, 0)) * rot;
+        break;
+    case GLUT_KEY_RIGHT:
+        rot = SE3<float>(makeVector(0.0, 0, 0, 0, -0.1, 0)) * rot;
+        break;
+    case GLUT_KEY_UP:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, -0.1, 0, 0));
+        break;
+    case GLUT_KEY_DOWN:
+        rot *= SE3<float>(makeVector(0.0, 0, 0, 0.1, 0, 0));
+        break;
+    }
+    redraw_big_view = true;
+}
+
 void reshape(int width, int height){
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -233,6 +257,9 @@ void exitFunc(void){
 
 int main(int argc, char ** argv) {
     const float size = (argc > 1) ? atof(argv[1]) : 2.f;
+
+    preTrans = SE3<float>::exp(makeVector(0.0, 0, -size, 0, 0, 0));
+    trans = SE3<float>::exp(makeVector(0.5, 0.5, 0.5, 0, 0, 0) * size);
 
     KFusionConfig config;
 
@@ -297,6 +324,7 @@ int main(int argc, char ** argv) {
     atexit(exitFunc);
     glutDisplayFunc(display);
     glutKeyboardFunc(keys);
+    glutSpecialFunc(specials);
     glutReshapeFunc(reshape);
     glutIdleFunc(idle);
 
