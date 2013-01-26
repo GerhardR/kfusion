@@ -17,7 +17,6 @@ using namespace std;
 using namespace TooN;
 
 #include <libfreenect.h>
-#include <libfreenect-registration.h>
 
 #include <pthread.h>
 
@@ -25,7 +24,6 @@ freenect_context *f_ctx;
 freenect_device *f_dev;
 bool gotDepth;
 int depth_index;
-freenect_registration registration;
 
 pthread_t freenect_thread;
 volatile bool die = false;
@@ -86,7 +84,6 @@ int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
     
     freenect_start_depth(f_dev);
     freenect_start_video(f_dev);
-    registration = freenect_copy_registration(f_dev);
 
     gotDepth = false;
 
@@ -105,7 +102,7 @@ void CloseKinect(){
 }
 
 KFusion kfusion;
-Image<uchar4, HostDevice> lightScene, depth, lightModel, texModel;
+Image<uchar4, HostDevice> lightScene, trackModel, lightModel, texModel;
 Image<uint16_t, HostDevice> depthImage[2];
 Image<uchar3, HostDevice> rgbImage;
 
@@ -123,9 +120,7 @@ bool render_texture = false;
 Image<float3, Device> pos, normals;
 Image<float, Device> dep;
 
-SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
-SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
-SE3<float> trans(makeVector(0.5, 0.5, 0.5, 0, 0, 0));
+SE3<float> preTrans, trans, rot(makeVector(0.0, 0, 0, 0, 0, 0));
 bool redraw_big_view = false;
 
 void display(void){
@@ -150,6 +145,8 @@ void display(void){
     }
 
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
+    renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
+    renderTrackResult(trackModel, kfusion.reduction);
     static int count = 4;
     if(count > 3 || redraw_big_view){
         renderInput( pos, normals, dep, kfusion.integration, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera * 2), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
@@ -166,14 +163,18 @@ void display(void){
     Stats.sample("render");
 
     glClear(GL_COLOR_BUFFER_BIT);
-    glRasterPos2i(320, 0);
-    glDrawPixels(texModel);
     glRasterPos2i(0, 0);
     glDrawPixels(lightScene);
     glRasterPos2i(0, 240);
     glPixelZoom(0.5, -0.5);
     glDrawPixels(rgbImage);
     glPixelZoom(1,-1);
+    glRasterPos2i(320,0);
+    glDrawPixels(lightModel);
+    glRasterPos2i(320,240);
+    glDrawPixels(trackModel);
+    glRasterPos2i(640, 0);
+    glDrawPixels(texModel);
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
@@ -258,9 +259,6 @@ void exitFunc(void){
 int main(int argc, char ** argv) {
     const float size = (argc > 1) ? atof(argv[1]) : 2.f;
 
-    preTrans = SE3<float>::exp(makeVector(0.0, 0, -size, 0, 0, 0));
-    trans = SE3<float>::exp(makeVector(0.5, 0.5, 0.5, 0, 0, 0) * size);
-
     KFusionConfig config;
 
     // it is enough now to set the volume resolution once.
@@ -294,7 +292,7 @@ int main(int argc, char ** argv) {
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE );
-    glutInitWindowSize(config.inputSize.x * 3, config.inputSize.y * 2);
+    glutInitWindowSize(config.inputSize.x * 2 + 640, max(config.inputSize.y * 2, 480));
     glutCreateWindow("kfusion");
 
     kfusion.Init(config);
@@ -305,7 +303,7 @@ int main(int argc, char ** argv) {
 
     kfusion.setPose(toMatrix4(initPose));
 
-    lightScene.alloc(config.inputSize), depth.alloc(config.inputSize), lightModel.alloc(config.inputSize);
+    // input buffers
     depthImage[0].alloc(make_uint2(640, 480));
     depthImage[1].alloc(make_uint2(640, 480));
     rgbImage.alloc(make_uint2(640, 480));
@@ -313,6 +311,8 @@ int main(int argc, char ** argv) {
     memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
+    // render buffers
+    lightScene.alloc(config.inputSize), trackModel.alloc(config.inputSize), lightModel.alloc(config.inputSize);
     pos.alloc(make_uint2(640, 480)), normals.alloc(make_uint2(640, 480)), dep.alloc(make_uint2(640, 480)), texModel.alloc(make_uint2(640, 480));
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
@@ -320,6 +320,10 @@ int main(int argc, char ** argv) {
         cudaDeviceReset();
         exit(1);
     }
+
+    // model rendering parameters
+    preTrans = SE3<float>::exp(makeVector(0.0, 0, -size, 0, 0, 0));
+    trans = SE3<float>::exp(makeVector(0.5, 0.5, 0.5, 0, 0, 0) * size);
 
     atexit(exitFunc);
     glutDisplayFunc(display);
