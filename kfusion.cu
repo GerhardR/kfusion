@@ -54,7 +54,7 @@ __global__ void integrate( Volume vol, const Image<float> depth, const Matrix4 i
         const float2 pixel = make_float2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
         if(pixel.x < 0 || pixel.x > depth.size.x-1 || pixel.y < 0 || pixel.y > depth.size.y-1)
             continue;
-        const uint2 px = make_uint2(cameraX.x/cameraX.z + 0.5f, cameraX.y/cameraX.z + 0.5f);
+        const uint2 px = make_uint2(pixel.x, pixel.y);
         if(depth[px] == 0)
             continue;
         const float diff = (depth[px] - cameraX.z) * sqrt(1+sq(pos.x/pos.z) + sq(pos.y/pos.z));
