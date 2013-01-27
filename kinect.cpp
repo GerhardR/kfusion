@@ -81,7 +81,7 @@ int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
 
     freenect_set_video_mode(f_dev, freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB));
     freenect_set_video_buffer(f_dev, rgb_buffer);
-    
+
     freenect_start_depth(f_dev);
     freenect_start_video(f_dev);
 
@@ -146,7 +146,7 @@ void display(void){
 
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
     renderLight( lightModel.getDeviceImage(), kfusion.vertex, kfusion.normal, light, ambient);
-    renderTrackResult(trackModel, kfusion.reduction);
+    renderTrackResult(trackModel.getDeviceImage(), kfusion.reduction);
     static int count = 4;
     if(count > 3 || redraw_big_view){
         renderInput( pos, normals, dep, kfusion.integration, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera * 2), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.75 * kfusion.configuration.mu);
@@ -272,7 +272,7 @@ int main(int argc, char ** argv) {
     config.nearPlane = 0.4f;
     config.farPlane = 5.0f;
     config.mu = 0.1;
-    config.combinedTrackAndReduce = true;
+    config.combinedTrackAndReduce = false;
 
     // change the following parameters for using 640 x 480 input images
     config.inputSize = make_uint2(320,240);
