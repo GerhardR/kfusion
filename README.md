@@ -35,13 +35,12 @@ Todo
 -----
 - rendering
   - integrate with GL for additional 3D graphics
-  - interactive viewpoint
 - write an inverse tracking method that moves the camera in the system
 - save size through combined depth + 2D normal maps
 
 Done
 -----
-- rendering with static model view + projected RGB
+- rendering with static model view + projected RGB + interactive viewpoint
 - registered depth input from libfreenect, uses more time unfortunately
 - integration speed up
 - CMake build system (contributed by Hartmut Seichter)
