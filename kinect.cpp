@@ -1,5 +1,6 @@
 #include "kfusion.h"
 #include "helpers.h"
+#include "interface.h"
 
 #include <iostream>
 #include <sstream>
@@ -7,6 +8,9 @@
 
 #ifdef __APPLE__
 #include <GLUT/glut.h>
+#elif defined(WIN32)
+#define GLUT_NO_LIB_PRAGMA
+#include <glut.h>
 #else
 #include <GL/glut.h>
 #endif
@@ -15,91 +19,6 @@
 
 using namespace std;
 using namespace TooN;
-
-#include <libfreenect.h>
-
-#include <pthread.h>
-
-freenect_context *f_ctx;
-freenect_device *f_dev;
-bool gotDepth;
-int depth_index;
-
-pthread_t freenect_thread;
-volatile bool die = false;
-
-uint16_t * buffers[2];
-
-void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
-{
-    gotDepth = true;
-    depth_index = (depth_index+1) % 2;
-    freenect_set_depth_buffer(dev, buffers[depth_index]);
-}
-
-void *freenect_threadfunc(void *arg)
-{
-    while(!die){
-        int res = freenect_process_events(f_ctx);
-        if (res < 0 && res != -10) {
-            cout << "\nError "<< res << " received from libusb - aborting.\n";
-            break;
-        }
-    }
-    freenect_stop_depth(f_dev);
-    freenect_stop_video(f_dev);
-    freenect_close_device(f_dev);
-    freenect_shutdown(f_ctx);
-}
-
-int InitKinect( uint16_t * depth_buffer[2], void * rgb_buffer ){
-    if (freenect_init(&f_ctx, NULL) < 0) {
-        cout << "freenect_init() failed" << endl;
-        return 1;
-    }
-
-    freenect_set_log_level(f_ctx, FREENECT_LOG_WARNING);
-    freenect_select_subdevices(f_ctx, (freenect_device_flags)(FREENECT_DEVICE_MOTOR | FREENECT_DEVICE_CAMERA));
-
-    int nr_devices = freenect_num_devices (f_ctx);
-    cout << "Number of devices found: " << nr_devices << endl;
-
-    if (nr_devices < 1)
-        return 1;
-
-    if (freenect_open_device(f_ctx, &f_dev, 0) < 0) {
-        cout << "Could not open device" << endl;
-        return 1;
-    }
-
-    depth_index = 0;
-    buffers[0] = depth_buffer[0];
-    buffers[1] = depth_buffer[1];
-    freenect_set_depth_callback(f_dev, depth_cb);
-    freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED));
-    freenect_set_depth_buffer(f_dev, buffers[depth_index]);
-
-    freenect_set_video_mode(f_dev, freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB));
-    freenect_set_video_buffer(f_dev, rgb_buffer);
-
-    freenect_start_depth(f_dev);
-    freenect_start_video(f_dev);
-
-    gotDepth = false;
-
-    int res = pthread_create(&freenect_thread, NULL, freenect_threadfunc, NULL);
-    if(res){
-        cout << "error starting kinect thread " << res << endl;
-        return 1;
-    }
-
-    return 0;
-}
-
-void CloseKinect(){
-    die = true;
-    pthread_join(freenect_thread, NULL);
-}
 
 KFusion kfusion;
 Image<uchar4, HostDevice> lightScene, trackModel, lightModel, texModel;
@@ -131,7 +50,7 @@ void display(void){
     const double startFrame = Stats.start();
     const double startProcessing = Stats.sample("kinect");
 
-    kfusion.setKinectDeviceDepth(depthImage[!depth_index].getDeviceImage());
+    kfusion.setKinectDeviceDepth(depthImage[GetKinectFrame()].getDeviceImage());
     Stats.sample("raw to cooked");
 
     integrate = kfusion.Track();
@@ -195,10 +114,8 @@ void display(void){
 }
 
 void idle(void){
-    if(gotDepth){
-        gotDepth = false;
+    if(KinectFrameAvailable())
         glutPostRedisplay();
-    }
 }
 
 void keys(unsigned char key, int x, int y){
@@ -316,7 +233,7 @@ int main(int argc, char ** argv) {
     pos.alloc(make_uint2(640, 480)), normals.alloc(make_uint2(640, 480)), dep.alloc(make_uint2(640, 480)), texModel.alloc(make_uint2(640, 480));
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
-    if(InitKinect(buffers, rgbImage.data())){
+	if(InitKinect(buffers, (unsigned char *)rgbImage.data())){
         cudaDeviceReset();
         exit(1);
     }

@@ -7,7 +7,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 find_package(CUDA REQUIRED)
 find_package(TooN REQUIRED)
 find_package(OpenGL)
-find_package(Freenect)
 find_package(GLUT)
 
 include_directories(
@@ -34,14 +33,14 @@ cuda_add_library(kfusion STATIC
 	-O3
 	)
 
-if (GLUT_FOUND AND FREENECT_FOUND)
+if (GLUT_FOUND)
 	
-	include_directories(${FREENECT_INCLUDE_PATHS} ${GLUT_INCLUDE_DIR})
+	include_directories($ENV{KINECTSDK10_DIR}/inc ${GLUT_INCLUDE_DIR})
 
 	add_executable(kfusion_kinect
-		kinect.cpp
+		kinect.cpp interface.h interface.cpp
 		)
-	target_link_libraries(kfusion_kinect kfusion ${FREENECT_LIBRARIES} ${GLUT_LIBRARIES} ${OPENGL_LIBRARIES} ) 
+	target_link_libraries(kfusion_kinect kfusion ${GLUT_LIBRARIES} ${OPENGL_LIBRARIES} $ENV{KINECTSDK10_DIR}/lib/amd64/Kinect10.lib) 
 
 endif()
 
