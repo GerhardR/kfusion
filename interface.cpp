@@ -53,19 +53,20 @@ DWORD WINAPI run(LPVOID pParam)
         switch(nEventIdx)
         {
             case 1: {
-				depth_index = (depth_index+1) % 2;
+				const int next_buffer = (depth_index+1) % 2;
 				HRESULT hr =  m_pSensor->NuiImageStreamGetNextFrame(m_pDepthStreamHandle, 0, &pImageFrame );
 
 				if( S_OK == hr ){
 					pImageFrame.pFrameTexture->LockRect( 0, &LockedRect, NULL, 0 );
 					if( LockedRect.Pitch != 0 ) {
 						uint16_t * pBuffer = (uint16_t*) LockedRect.pBits;
-						std::copy(pBuffer, pBuffer + 640*480, buffers[depth_index]);
+						std::copy(pBuffer, pBuffer + 640*480, buffers[next_buffer]);
 					} else {
 						cout << "Buffer length of received texture is bogus\r\n" << endl;
 					}
 					// cout << "Depthframe \t" << pImageFrame->dwFrameNumber << endl;
-					m_pSensor->NuiImageStreamReleaseFrame( m_pDepthStreamHandle, &pImageFrame );	
+					m_pSensor->NuiImageStreamReleaseFrame( m_pDepthStreamHandle, &pImageFrame );
+					depth_index = next_buffer;
 					gotDepth = true;
 				}
 			} break;
