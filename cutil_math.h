@@ -970,15 +970,15 @@ inline __host__ __device__ uint min(uint4 a)
 
 inline __host__ __device__ float min(float2 a)
 {
-    return min(a.x,a.y);
+    return fminf(a.x,a.y);
 }
 inline __host__ __device__ float min(float3 a)
 {
-    return min(a.x,min(a.y, a.z));
+    return fminf(a.x,fminf(a.y, a.z));
 }
 inline __host__ __device__ float min(float4 a)
 {
-    return min(min(a.x, a.y),min(a.z, a.w));
+    return fminf(fminf(a.x, a.y),fminf(a.z, a.w));
 }
 
 
@@ -1040,15 +1040,15 @@ inline __host__ __device__ uint max(uint4 a)
 
 inline __host__ __device__ float max(float2 a)
 {
-    return max(a.x,a.y);
+    return fmaxf(a.x,a.y);
 }
 inline __host__ __device__ float max(float3 a)
 {
-    return max(a.x,max(a.y, a.z));
+    return fmaxf(a.x,fmaxf(a.y, a.z));
 }
 inline __host__ __device__ float max(float4 a)
 {
-    return max(max(a.x, a.y),max(a.z, a.w));
+    return fmaxf(fmaxf(a.x, a.y),fmaxf(a.z, a.w));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

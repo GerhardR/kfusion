@@ -27,7 +27,7 @@ set(kfusion_cuda_srcs
 	cutil_math.h
 	)
 	
-cuda_add_library(kfusion SHARED
+cuda_add_library(kfusion STATIC
 	${kfusion_cuda_srcs}
 	perfstats.h
 	OPTIONS
@@ -36,7 +36,7 @@ cuda_add_library(kfusion SHARED
 
 if (GLUT_FOUND AND FREENECT_FOUND)
 	
-	include_directories(${FREENECT_INCLUDE_PATHS})
+	include_directories(${FREENECT_INCLUDE_PATHS} ${GLUT_INCLUDE_DIR})
 
 	add_executable(kfusion_kinect
 		kinect.cpp
@@ -47,6 +47,8 @@ endif()
 
 
 if(GLUT_FOUND)
+
+	include_directories(${GLUT_INCLUDE_DIR})
 
 	add_executable(kfusion_test
 		test.cpp

@@ -8,9 +8,9 @@
    
    // need c headers for __int128 and uint16_t
    #include <limits.h>
-   #include <stdint.h>
 #endif
 
+#include <stdint.h>
 #include <iostream>
 #include <vector>
 
@@ -71,7 +71,7 @@ struct KFusionConfig {
         iterations.push_back( 5 );
         iterations.push_back( 5 );
         iterations.push_back( 5 );
-        track_threshold = 0.15;
+        track_threshold = 0.15f;
 
         imageBlock = dim3(32,16);
         raycastBlock = dim3(32,8);

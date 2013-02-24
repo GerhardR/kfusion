@@ -5,6 +5,13 @@
 
 #include <TooN/se3.h>
 
+#ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#undef min
+#undef max
+#endif
+
 #include <cuda_gl_interop.h> // includes cuda_gl_interop.h
 
 template<typename P>

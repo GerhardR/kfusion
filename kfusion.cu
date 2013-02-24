@@ -9,7 +9,7 @@
 #include <TooN/se3.h>
 #include <TooN/GR_SVD.h>
 
-static const float INVALID = -2;   // this is used to mark invalid entries in normal or vertex maps
+#define INVALID -2   // this is used to mark invalid entries in normal or vertex maps
 
 using namespace std;
 
@@ -498,7 +498,7 @@ TooN::Vector<6> solve( const TooN::Vector<27, T, A> & vals ){
 void KFusion::Raycast(){
     // raycast integration volume into the depth, vertex, normal buffers
     raycastPose = pose;
-    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, raycastPose * getInverseCameraMatrix(configuration.camera), configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75 * configuration.mu);
+    raycast<<<divup(configuration.inputSize, configuration.raycastBlock), configuration.raycastBlock>>>(vertex, normal, integration, raycastPose * getInverseCameraMatrix(configuration.camera), configuration.nearPlane, configuration.farPlane, configuration.stepSize(), 0.75f * configuration.mu);
 }
 
 bool KFusion::Track() {
@@ -517,7 +517,7 @@ bool KFusion::Track() {
 
     // prepare the 3D information from the input depth maps
     for(int i = 0; i < configuration.iterations.size(); ++i){
-        depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / (1 << i))); // inverse camera matrix depends on level
+        depth2vertex<<<grids[i], configuration.imageBlock>>>( inputVertex[i], inputDepth[i], getInverseCameraMatrix(configuration.camera / float(1 << i))); // inverse camera matrix depends on level
         vertex2normal<<<grids[i], configuration.imageBlock>>>( inputNormal[i], inputVertex[i] );
     }
 

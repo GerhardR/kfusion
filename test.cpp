@@ -7,6 +7,9 @@
 
 #ifdef __APPLE__
 #include <GLUT/glut.h>
+#elif defined(WIN32)
+#define GLUT_NO_LIB_PRAGMA
+#include <glut.h>
 #else
 #include <GL/glut.h>
 #endif
