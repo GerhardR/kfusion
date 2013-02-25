@@ -4,6 +4,7 @@
 #include <NuiApi.h>
 
 #include <iostream>
+#include <vector>
 #include <stdint.h>
 
 using namespace std;
@@ -25,6 +26,7 @@ int depth_index;
 
 uint16_t * buffers[2];
 unsigned char * rgb;
+vector<LONG> colorpixels;
 
 DWORD WINAPI run(LPVOID pParam)
 {
@@ -55,12 +57,24 @@ DWORD WINAPI run(LPVOID pParam)
             case 1: {
 				const int next_buffer = (depth_index+1) % 2;
 				HRESULT hr =  m_pSensor->NuiImageStreamGetNextFrame(m_pDepthStreamHandle, 0, &pImageFrame );
-
 				if( S_OK == hr ){
 					pImageFrame.pFrameTexture->LockRect( 0, &LockedRect, NULL, 0 );
 					if( LockedRect.Pitch != 0 ) {
 						uint16_t * pBuffer = (uint16_t*) LockedRect.pBits;
-						std::copy(pBuffer, pBuffer + 640*480, buffers[next_buffer]);
+						hr = m_pSensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
+								NUI_IMAGE_RESOLUTION_640x480,
+								NUI_IMAGE_RESOLUTION_640x480,
+								640*480,
+								pBuffer,
+								DWORD(colorpixels.size()),
+								colorpixels.data()
+						);
+						memset(buffers[next_buffer], 0, 640*480*sizeof(uint16_t));
+						for(int i = 0; i < 640*480; ++i){
+							if(colorpixels[2*i] < 0 || colorpixels[2*i] > 639 || colorpixels[2*i+1] < 0 || colorpixels[2*i+1] > 479 )
+								continue;
+							buffers[next_buffer][colorpixels[2*i+1] * 640 + 640 - colorpixels[2*i]] = pBuffer[i] >> 3;
+						}
 					} else {
 						cout << "Buffer length of received texture is bogus\r\n" << endl;
 					}
@@ -78,10 +92,13 @@ DWORD WINAPI run(LPVOID pParam)
 					if( LockedRect.Pitch != 0 ) {
 						unsigned char * dest = rgb;
 						unsigned char * pBuffer = (unsigned char *) LockedRect.pBits;
-						for(int i = 0; i < 640*480; ++i, dest+=3, pBuffer +=4){
-							dest[0] = pBuffer[0];
-							dest[1] = pBuffer[1];
-							dest[2] = pBuffer[2];
+						for(int r = 0; r < 480; ++r){
+							dest = rgb + 3*(r+1)*640;
+							for(int i = 0; i < 640; ++i, dest-=3, pBuffer +=4){
+								dest[0] = pBuffer[0];
+								dest[1] = pBuffer[1];
+								dest[2] = pBuffer[2];
+							}
 						}
 					} else {
 						cout << "Buffer length of received texture is bogus\r\n" << endl;
@@ -133,6 +150,7 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
         &m_pDepthStreamHandle );
 
 	hr =  m_pSensor->NuiGetCoordinateMapper(&m_pMapping);
+	colorpixels.resize(2*640*480);
 
     // Start the Nui processing thread
     m_hEvNuiProcessStop=CreateEvent(NULL,FALSE,FALSE,NULL);
