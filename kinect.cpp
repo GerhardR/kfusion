@@ -193,7 +193,7 @@ int main(int argc, char ** argv) {
 
     // change the following parameters for using 640 x 480 input images
     config.inputSize = make_uint2(320,240);
-    config.camera =  make_float4(530.0/2, 530.0/2, 640/4, 480/4);
+    config.camera =  make_float4(531.15/2, 531.15/2, 640/4, 480/4);
 
     // config.iterations is a vector<int>, the length determines
     // the number of levels to be used in tracking
@@ -213,10 +213,6 @@ int main(int argc, char ** argv) {
     glutCreateWindow("kfusion");
 
     kfusion.Init(config);
-    if(printCUDAError()) {
-        cudaDeviceReset();
-        exit(1);
-    }
 
     kfusion.setPose(toMatrix4(initPose));
 
@@ -231,6 +227,11 @@ int main(int argc, char ** argv) {
     // render buffers
     lightScene.alloc(config.inputSize), trackModel.alloc(config.inputSize), lightModel.alloc(config.inputSize);
     pos.alloc(make_uint2(640, 480)), normals.alloc(make_uint2(640, 480)), dep.alloc(make_uint2(640, 480)), texModel.alloc(make_uint2(640, 480));
+
+	if(printCUDAError()) {
+        cudaDeviceReset();
+        exit(1);
+    }
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
 	if(InitKinect(buffers, (unsigned char *)rgbImage.data())){

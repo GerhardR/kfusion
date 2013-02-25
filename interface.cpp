@@ -90,10 +90,9 @@ DWORD WINAPI run(LPVOID pParam)
 				if( S_OK == hr ){
 					pImageFrame.pFrameTexture->LockRect( 0, &LockedRect, NULL, 0 );
 					if( LockedRect.Pitch != 0 ) {
-						unsigned char * dest = rgb;
 						unsigned char * pBuffer = (unsigned char *) LockedRect.pBits;
 						for(int r = 0; r < 480; ++r){
-							dest = rgb + 3*(r+1)*640;
+							unsigned char * dest = rgb + 3*(r+1)*640;
 							for(int i = 0; i < 640; ++i, dest-=3, pBuffer +=4){
 								dest[0] = pBuffer[0];
 								dest[1] = pBuffer[1];
@@ -185,7 +184,7 @@ void CloseKinect(){
         CloseHandle(m_hEvNuiProcessStop);
     }
 
-     m_pSensor->NuiShutdown( );
+    m_pSensor->NuiShutdown( );
     if( m_hNextDepthFrameEvent && ( m_hNextDepthFrameEvent != INVALID_HANDLE_VALUE ) )
     {
         CloseHandle( m_hNextDepthFrameEvent );
