@@ -59,7 +59,8 @@ void display(void){
         kfusion.Integrate();
         kfusion.Raycast();
         Stats.sample("integrate");
-        reset = false;
+        if(counter > 2) // use the first two frames to initialize
+            reset = false;
     }
 
     renderLight( lightScene.getDeviceImage(), kfusion.inputVertex[0], kfusion.inputNormal[0], light, ambient );
