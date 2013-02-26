@@ -1,3 +1,9 @@
+// This file contains different implementations to access the depth device
+// The common API is defined in interface.h
+// The returned depth buffers are mapped to the color buffer and store the
+// depth at each pixel in mm. 0 marks an invalid pixel.
+
+// This implementation uses the MS Kinect SDK, tested with version 1.6
 #ifdef MS_KINECT_INTERFACE
 
 #include <Windows.h>
@@ -49,7 +55,7 @@ DWORD WINAPI run(LPVOID pParam)
 
         // If the stop event, stop looping and exit
         if(nEventIdx==0)
-            break;            
+            break;
 
         // Process signal events
         switch(nEventIdx)
@@ -71,9 +77,8 @@ DWORD WINAPI run(LPVOID pParam)
                         );
                         memset(buffers[next_buffer], 0, 640*480*sizeof(uint16_t));
                         for(int i = 0; i < 640*480; ++i){
-                            if(colorpixels[2*i] < 0 || colorpixels[2*i] > 639 || colorpixels[2*i+1] < 0 || colorpixels[2*i+1] > 479 )
-                                continue;
-                            buffers[next_buffer][colorpixels[2*i+1] * 640 + 640 - colorpixels[2*i]] = pBuffer[i] >> 3;
+                            if(colorpixels[2*i] >= 0 && colorpixels[2*i] < 640 && colorpixels[2*i+1] >= 0 && colorpixels[2*i+1] < 480 )
+                                buffers[next_buffer][colorpixels[2*i+1] * 640 + 640 - colorpixels[2*i]] = pBuffer[i] >> 3;
                         }
                     } else {
                         cout << "Buffer length of received texture is bogus\r\n" << endl;
@@ -126,7 +131,7 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
 
     hr = NuiCreateSensorByIndex( 0, &m_pSensor );
     if( FAILED( hr ) ){
-        cout << "Kinect3DDevice: Could not open Kinect Device" << endl;
+        cout << "MSKinect SDK: Could not open Device" << endl;
         return 1;
     }
 
@@ -197,6 +202,7 @@ void CloseKinect(){
     } 
 }
 
+// This implementation uses the libfreenect library and pthreads for threading
 #elif defined(LIBFREENECT_INTERFACE)
 
 #include <libfreenect.h>
@@ -249,19 +255,19 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
     freenect_select_subdevices(f_ctx, (freenect_device_flags)(FREENECT_DEVICE_MOTOR | FREENECT_DEVICE_CAMERA));
 
     int nr_devices = freenect_num_devices (f_ctx);
-    cout << "Number of devices found: " << nr_devices << endl;
-
     if (nr_devices < 1)
         return 1;
 
     if (freenect_open_device(f_ctx, &f_dev, 0) < 0) {
-        cout << "Could not open device" << endl;
+        cout << "libfreenect: Could not open device" << endl;
         return 1;
     }
 
+    gotDepth = false;
     depth_index = 0;
     buffers[0] = depth_buffer[0];
     buffers[1] = depth_buffer[1];
+    
     freenect_set_depth_callback(f_dev, depth_cb);
     freenect_set_depth_mode(f_dev, freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED));
     freenect_set_depth_buffer(f_dev, buffers[depth_index]);
@@ -271,8 +277,6 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
 
     freenect_start_depth(f_dev);
     freenect_start_video(f_dev);
-
-    gotDepth = false;
 
     int res = pthread_create(&freenect_thread, NULL, freenect_threadfunc, NULL);
     if(res){

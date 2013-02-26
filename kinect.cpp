@@ -1,6 +1,7 @@
 #include "kfusion.h"
 #include "helpers.h"
 #include "interface.h"
+#include "perfstats.h"
 
 #include <iostream>
 #include <sstream>
@@ -14,8 +15,6 @@
 #else
 #include <GL/glut.h>
 #endif
-
-#include "perfstats.h"
 
 using namespace std;
 using namespace TooN;
@@ -214,30 +213,31 @@ int main(int argc, char ** argv) {
 
     kfusion.Init(config);
 
-    kfusion.setPose(toMatrix4(initPose));
-
     // input buffers
     depthImage[0].alloc(make_uint2(640, 480));
     depthImage[1].alloc(make_uint2(640, 480));
     rgbImage.alloc(make_uint2(640, 480));
-    memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
-    memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
-    memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
     // render buffers
     lightScene.alloc(config.inputSize), trackModel.alloc(config.inputSize), lightModel.alloc(config.inputSize);
     pos.alloc(make_uint2(640, 480)), normals.alloc(make_uint2(640, 480)), dep.alloc(make_uint2(640, 480)), texModel.alloc(make_uint2(640, 480));
 
-	if(printCUDAError()) {
+    if(printCUDAError()) {
         cudaDeviceReset();
-        exit(1);
+        return 1;
     }
 
+    memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
+    memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
+    memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
+
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
-	if(InitKinect(buffers, (unsigned char *)rgbImage.data())){
+    if(InitKinect(buffers, (unsigned char *)rgbImage.data())){
         cudaDeviceReset();
-        exit(1);
+        return 1;
     }
+
+    kfusion.setPose(toMatrix4(initPose));
 
     // model rendering parameters
     preTrans = SE3<float>::exp(makeVector(0.0, 0, -size, 0, 0, 0));
