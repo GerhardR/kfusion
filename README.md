@@ -2,7 +2,7 @@
 KFusion 0.4
 =============
 
-Copyright TU Graz, Gerhard Reitmayr, 2011 - 2012
+Copyright TU Graz, Gerhard Reitmayr, 2011 - 2013
 
 This is an implementation sketch of the KinectFusion system described by
 Richard Newcombe et al. in "KinectFusion: Real-Time Dense Surface Mapping and Tracking",
@@ -40,8 +40,9 @@ Use CMake to create build files for your platform. Some tips and tricks
 - On Windows, make sure to use a 64-bit version of GLUT
 - On Apple OSX, set CUDA_HOST_COMPILER to /usr/bin/g++
 
-On Unix/OSX platforms, tweak the Makefile for your setup and have a look at kfusion.h
-to set some defines to adapt to your compute capabilities. Then make.
+Altenatively, On Unix/OSX platforms, tweak the Makefile for your setup, then make.
+
+Have a look at kfusion.h for a description of most parameters and kinect.cpp for setting them.
 
 Todo
 -----
