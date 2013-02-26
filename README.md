@@ -1,5 +1,5 @@
 
-KFusion 0.3.1
+KFusion 0.4
 =============
 
 Copyright TU Graz, Gerhard Reitmayr, 2011 - 2012
@@ -19,8 +19,15 @@ Requirements
 KFusion depends on the following libraries:
 
 * http://www.edwardrosten.com/cvd/toon.html
-* http://openkinect.org/
 * GLUT
+
+On Windows use the MS Kinect SDK:
+
+* http://www.microsoft.com/en-us/kinectforwindows/develop/overview.aspx
+
+while on other platforms use libfreenect:
+
+* http://openkinect.org/
 
 and of course the CUDA 5 SDK by NVidia
 
@@ -28,7 +35,12 @@ and of course the CUDA 5 SDK by NVidia
 
 Install
 -----
-To get started, tweak the Makefile for your setup and have a look at kfusion.h
+
+Use CMake to create build files for your platform. Some tips and tricks
+- On Windows, make sure to use a 64-bit version of GLUT
+- On Apple OSX, set CUDA_HOST_COMPILER to /usr/bin/g++
+
+On Unix/OSX platforms, tweak the Makefile for your setup and have a look at kfusion.h
 to set some defines to adapt to your compute capabilities. Then make.
 
 Todo
@@ -40,6 +52,7 @@ Todo
 
 Done
 -----
+- MSKinect SDK interface for Windows, libfreenect on other platforms
 - rendering with static model view + projected RGB + interactive viewpoint
 - registered depth input from libfreenect, uses more time unfortunately
 - integration speed up
