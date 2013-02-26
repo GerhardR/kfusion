@@ -21,7 +21,6 @@ HANDLE        m_pDepthStreamHandle;
 HANDLE        m_pVideoStreamHandle;
 
 INuiSensor * m_pSensor;
-INuiCoordinateMapper * m_pMapping;
 
 // thread handling
 HANDLE        m_hThNuiProcess;
@@ -83,7 +82,7 @@ DWORD WINAPI run(LPVOID pParam)
                     } else {
                         cout << "Buffer length of received texture is bogus\r\n" << endl;
                     }
-                    // cout << "Depthframe \t" << pImageFrame->dwFrameNumber << endl;
+                    // cout << "Depthframe \t" << pImageFrame.dwFrameNumber << endl;
                     m_pSensor->NuiImageStreamReleaseFrame( m_pDepthStreamHandle, &pImageFrame );
                     depth_index = next_buffer;
                     gotDepth = true;
@@ -107,7 +106,7 @@ DWORD WINAPI run(LPVOID pParam)
                     } else {
                         cout << "Buffer length of received texture is bogus\r\n" << endl;
                     }
-                    // cout << "Rgbframe \t" << pImageFrame->dwFrameNumber << endl;
+                    // cout << "Rgbframe \t" << pImageFrame.dwFrameNumber << endl;
                     m_pSensor->NuiImageStreamReleaseFrame( m_pVideoStreamHandle, &pImageFrame );
                 } 
             } break;
@@ -153,7 +152,6 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
         m_hNextDepthFrameEvent,
         &m_pDepthStreamHandle );
 
-    hr =  m_pSensor->NuiGetCoordinateMapper(&m_pMapping);
     colorpixels.resize(2*640*480);
 
     // Start the Nui processing thread
