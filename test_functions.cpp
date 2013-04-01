@@ -1,25 +1,3 @@
-/*
-Copyright (c) 2011-2013 Gerhard Reitmayr, TU Graz
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
 
 #include "kfusion.h"
 #include "helpers.h"
@@ -30,9 +8,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #ifdef __APPLE__
 #include <GLUT/glut.h>
-#elif defined(WIN32)
-#define GLUT_NO_LIB_PRAGMA
-#include <glut.h>
 #else
 #include <GL/glut.h>
 #endif
@@ -46,11 +21,18 @@ SE3<float> preTrans(makeVector(0.0, 0, -0.9, 0, 0, 0));
 SE3<float> rot(makeVector(0.0, 0, 0, 0, 0, 0));
 SE3<float> trans(makeVector(0.5, 0.5, 0.5, 0, 0, 0));
 
-KFusion kfusion;
-Volume reference;
+uint2 imageSize;
+
+Raycast raycaster;
+Integrate integrater;
+Track tracker;
+
+Volume integration, reference;
 Image<float3, HostDevice> vertex, normal;
 Image<float, HostDevice> depth;
 Image<uchar4, HostDevice> rgb;
+
+Matrix4 pose;
 
 int counter = 0;
 bool benchmark = false;
@@ -59,11 +41,11 @@ void display(void) {
 
     static bool integrate = true;
 
-    const uint2 imageSize = kfusion.configuration.inputSize;
-
     const double start = Stats.start();
-    renderInput(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), reference, toMatrix4( trans * rot * preTrans ) * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.01 );
+    raycaster(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), reference, toMatrix4( trans * rot * preTrans ));
+    CUDA_ERROR;
     cudaDeviceSynchronize();
+    CUDA_ERROR;
     Stats.sample("ground raycast");
     Stats.sample("ground copy");
 
@@ -73,34 +55,30 @@ void display(void) {
     glDrawPixels(normal);
     glRasterPos2i(imageSize.x * 2, 0);
     glDrawPixels(depth);
-    Stats.sample("ground draw");
+    const double track_start = Stats.sample("ground draw");
 
-    kfusion.setDepth( depth.getDeviceImage() );
-    cudaDeviceSynchronize();
-    const double track_start = Stats.sample("process depth");
+#if 1
 
     if(counter > 1){
-        integrate = kfusion.Track();
+        raycaster(vertex.getDeviceImage(), normal.getDeviceImage(), integration, pose);
+        CUDA_ERROR;
+        pair<Matrix4, bool> result = tracker(depth.getDeviceImage(), vertex.getDeviceImage(), normal.getDeviceImage(),pose);
+        CUDA_ERROR;
         cudaDeviceSynchronize();
+        CUDA_ERROR;
+        pose = result.first;
+        integrate = result.second;
         Stats.sample("track");
     }
 
-    renderTrackResult(rgb.getDeviceImage(), kfusion.reduction);
+#endif
+
+    renderTrackResult(rgb.getDeviceImage(), tracker.reduction);
+    CUDA_ERROR;
     cudaDeviceSynchronize();
+    CUDA_ERROR;
     Stats.sample("track render");
     Stats.sample("track copy");
-
-    if(integrate){
-        kfusion.Integrate();
-        cudaDeviceSynchronize();
-        Stats.sample("integration");
-        kfusion.Raycast();
-        cudaDeviceSynchronize();
-        Stats.sample("raycast");
-        vertex = kfusion.vertex;
-        normal = kfusion.normal;
-        Stats.sample("raycast get");
-    }
 
     glRasterPos2i(0,imageSize.y * 1);
     glDrawPixels(vertex);
@@ -110,10 +88,20 @@ void display(void) {
     glDrawPixels(rgb);
     Stats.sample("track draw");
 
+    if(integrate){
+        integrater(integration, depth.getDeviceImage(), pose);
+        CUDA_ERROR;
+        cudaDeviceSynchronize();
+        CUDA_ERROR;
+        Stats.sample("integration");
+    }
     Stats.sample("total track", Stats.get_time() - track_start, PerfStats::TIME);
 
-    renderInput(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), kfusion.integration,  kfusion.pose * getInverseCameraMatrix(kfusion.configuration.camera), kfusion.configuration.nearPlane, kfusion.configuration.farPlane, kfusion.configuration.stepSize(), 0.7 * kfusion.configuration.mu );
+    raycaster(vertex.getDeviceImage(), normal.getDeviceImage(), depth.getDeviceImage(), integration, pose);
+    CUDA_ERROR;
     cudaDeviceSynchronize();
+    CUDA_ERROR;
+
     Stats.sample("view raycast");
     Stats.sample("view copy");
 
@@ -136,7 +124,7 @@ void display(void) {
 
     ++counter;
 
-    printCUDAError();
+    CUDA_ERROR;
 
     glutSwapBuffers();
 }
@@ -144,14 +132,14 @@ void display(void) {
 void keys(unsigned char key, int x, int y) {
     switch(key){
     case 'r':
-        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+        pose = toMatrix4( trans * rot * preTrans );
         break;
     case 'c':
-        kfusion.Reset();
-        kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+        InitVolume(integration);
+        pose = toMatrix4( trans * rot * preTrans );
         break;
     case 'd':
-        cout << kfusion.pose << endl;
+        cout << pose << endl;
         break;
     case 'q':
         exit(0);
@@ -204,6 +192,8 @@ int main(int argc, char ** argv) {
 
     benchmark = argc > 1 && string(argv[1]) == "-b";
 
+    cudaSetDeviceFlags(cudaDeviceMapHost);
+
     KFusionConfig config;
     config.volumeSize = make_uint3(128);
 
@@ -223,26 +213,37 @@ int main(int argc, char ** argv) {
     config.dist_threshold = 0.2f;
     config.normal_threshold = 0.8f;
 
-    kfusion.Init(config);
-    if(printCUDAError()){
-        cudaDeviceReset();
-        exit(1);
-    }
+    imageSize = config.inputSize;
+    raycaster = config;
+    raycaster.largeSteps = 0.01;
+    integrater = config;
+    tracker = config;
+
+    integration.init(config.volumeSize, config.volumeDimensions);
+    CUDA_ERROR;
+    InitVolume(integration);
+    CUDA_ERROR;
 
     reference.init(config.volumeSize, config.volumeDimensions);
+    CUDA_ERROR;
+    InitVolume(reference);
+    CUDA_ERROR;
 
-    initVolumeWrap(reference, 1.0f);
     setBoxWrap(reference, make_float3(0.1f,0.1f,0.8f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setBoxWrap(reference, make_float3(0.1f,0.8f,0.1f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setBoxWrap(reference, make_float3(0.8f,0.1f,0.1f), make_float3(0.9f, 0.9f, 0.9f), -1.0f);
     setSphereWrap(reference, make_float3(0.5f), 0.2f, -1.0f);
 
-    kfusion.setPose( toMatrix4( trans * rot * preTrans ));
+    CUDA_ERROR;
+
+    pose = toMatrix4( trans * rot * preTrans );
 
     vertex.alloc(config.inputSize);
     normal.alloc(config.inputSize);
     depth.alloc(config.inputSize);
     rgb.alloc(config.inputSize);
+
+    CUDA_ERROR;
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE );
@@ -256,8 +257,6 @@ int main(int argc, char ** argv) {
     glutIdleFunc(idle);
 
     glutMainLoop();
-
-    cudaDeviceReset();
 
     return 0;
 }
