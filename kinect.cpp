@@ -107,17 +107,17 @@ void display(void){
 
     glClear(GL_COLOR_BUFFER_BIT);
     glRasterPos2i(0, 0);
-    glDrawPixels(lightScene);
+    glDrawPixels(lightScene); // left top
     glRasterPos2i(0, 240);
     glPixelZoom(0.5, -0.5);
-    glDrawPixels(rgbImage);
+    glDrawPixels(rgbImage); // left bottom
     glPixelZoom(1,-1);
     glRasterPos2i(320,0);
-    glDrawPixels(lightModel);
+    glDrawPixels(lightModel); // middle top
     glRasterPos2i(320,240);
-    glDrawPixels(trackModel);
+    glDrawPixels(trackModel); // middle bottom
     glRasterPos2i(640, 0);
-    glDrawPixels(texModel);
+    glDrawPixels(texModel); // right
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
