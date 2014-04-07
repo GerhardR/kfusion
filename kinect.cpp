@@ -198,9 +198,24 @@ void exitFunc(void){
 }
 
 int main(int argc, char ** argv) {
-    const float size = (argc > 1) ? atof(argv[1]) : 2.f;
+    const float default_size = 2.f;
 
     KFusionConfig config;
+
+    // Search for --help argument
+    for (int i = 0; i < argc; ++i) {
+        if (string(argv[i]) == "--help") {
+            cout << "Usage: kinect [size] [dist_threshold] [normal_threshold]" << endl;
+            cout << endl;
+            cout << "Defaults:" << endl;
+            cout << "  size: " << default_size << endl;
+            cout << "  dist_threshold: " << config.dist_threshold << endl;
+            cout << "  normal_threshold: " << config.normal_threshold << endl;
+            return 0;
+        }
+    }
+
+    const float size = (argc > 1) ? atof(argv[1]) : default_size;
 
     // it is enough now to set the volume resolution once.
     // everything else is derived from that.
