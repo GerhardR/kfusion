@@ -26,6 +26,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "interface.h"
 #include "perfstats.h"
 
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
