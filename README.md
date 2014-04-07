@@ -16,6 +16,9 @@ KFusion is mainly written in CUDA with some interface code to display graphics o
 Requirements
 ------------
 
+You need a depth camera: Either a Microsoft Kinect or any camera supported
+by OpenNI 2 (such as the Asus Xtion Pro Live).
+
 KFusion depends on the following libraries:
 
 * http://www.edwardrosten.com/cvd/toon.html
@@ -25,9 +28,10 @@ On Windows use the MS Kinect SDK:
 
 * http://www.microsoft.com/en-us/kinectforwindows/develop/overview.aspx
 
-while on other platforms use libfreenect:
+while on other platforms use either:
 
-* http://openkinect.org/
+* libfreenect: http://openkinect.org or
+* OpenNI: https://github.com/OpenNI/OpenNI2
 
 and of course the CUDA 5 SDK by NVidia
 
