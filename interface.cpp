@@ -276,8 +276,10 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
     freenect_select_subdevices(f_ctx, (freenect_device_flags)(FREENECT_DEVICE_MOTOR | FREENECT_DEVICE_CAMERA));
 
     int nr_devices = freenect_num_devices (f_ctx);
-    if (nr_devices < 1)
+    if (nr_devices < 1){
+        cout << "libfreenect: No devices found" << endl;
         return 1;
+    }
 
     if (freenect_open_device(f_ctx, &f_dev, 0) < 0) {
         cout << "libfreenect: Could not open device" << endl;
