@@ -22,4 +22,4 @@ test: kfusion.o helpers.o test.o
 kinect: kfusion.o helpers.o kinect.o interface.o
 
 clean:
-	rm *.o test kinect
+	rm -rf *.o test kinect
