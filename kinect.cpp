@@ -267,6 +267,9 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    cout << "Using depthImage size: " << depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t) << " bytes " << endl;
+    cout << "Using rgbImage size: " << rgbImage.size.x*rgbImage.size.y * sizeof(uchar3) << " bytes " << endl;
+
     memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
     memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
