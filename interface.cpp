@@ -139,7 +139,14 @@ DWORD WINAPI run(LPVOID pParam)
     return (0);
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path ){
+
+    if (replay_path != "")
+    {
+        cout << "Replaying a recording is not supported with MS_KINECT_INTERFACE!" << endl;
+        return 1;
+    }
+
     buffers[0] = depth_buffer[0];
     buffers[1] = depth_buffer[1];
     rgb = rgb_buffer;
@@ -266,7 +273,14 @@ void *freenect_threadfunc(void *arg)
     return NULL;
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer ){
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path ){
+
+    if (replay_path != "")
+    {
+        cout << "Replaying a recording is not supported with LIBFREENECT_INTERFACE!" << endl;
+        return 1;
+    }
+
     if (freenect_init(&f_ctx, NULL) < 0) {
         cout << "freenect_init() failed" << endl;
         return 1;
@@ -432,7 +446,7 @@ void *openni_threadfunc(void *arg)
     return NULL;
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer )
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path )
 {
     // The allocators must survive this initialization function.
     KFusionDepthFrameAllocator *depthAlloc = new KFusionDepthFrameAllocator(depth_buffer);
@@ -460,8 +474,15 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer )
         return 1;
     }
 
-    // Open device
-    status = device.open(ANY_DEVICE);
+    // Open device or .oni file to replay
+    if (replay_path == "")
+    {
+        // Use a camera
+        status = device.open(ANY_DEVICE);
+    } else {
+        // Use an .oni file
+        status = device.open(replay_path.c_str());
+    }
 
     if (status != STATUS_OK) {
         printf("OpenNI: Could not open device:\n%s\n", OpenNI::getExtendedError());
@@ -532,21 +553,29 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer )
     }
 
     // Disable depth mirroring (we want to see the perspective of the camera)
-    status = depth_stream.setMirroringEnabled(false);
+    // (only works with a real camera, not with a replay)
+    if (replay_path == "")
+    {
+        status = depth_stream.setMirroringEnabled(false);
 
-    if (status != STATUS_OK) {
-        printf("OpenNI: Could enable mirroring on depth stream\n%s\n", OpenNI::getExtendedError());
-        OpenNI::shutdown();
-        return 1;
+        if (status != STATUS_OK) {
+            printf("OpenNI: Could enable mirroring on depth stream\n%s\n", OpenNI::getExtendedError());
+            OpenNI::shutdown();
+            return 1;
+        }
     }
 
     // Disable color mirroring (we want to see the perspective of the camera)
-    status = color_stream.setMirroringEnabled(false);
+    // (only works with a real camera, not with a replay)
+    if (replay_path == "")
+    {
+        status = color_stream.setMirroringEnabled(false);
 
-    if (status != STATUS_OK) {
-        printf("OpenNI: Could enable mirroring on color stream\n%s\n", OpenNI::getExtendedError());
-        OpenNI::shutdown();
-        return 1;
+        if (status != STATUS_OK) {
+            printf("OpenNI: Could enable mirroring on color stream\n%s\n", OpenNI::getExtendedError());
+            OpenNI::shutdown();
+            return 1;
+        }
     }
 
     // Use allocator to have OpenNI write directly into our depth buffers

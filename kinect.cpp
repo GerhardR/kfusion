@@ -230,7 +230,7 @@ int main(int argc, char ** argv) {
 
     // Search for --help argument
     if (haveSwitch(args, "--help")) {
-        cout << "Usage: kinect [--size METERS] [--dist_threshold METERS] [--normal_threshold METERS]" << endl;
+        cout << "Usage: kinect [--size METERS] [--dist_threshold METERS] [--normal_threshold METERS] [--replay PATH.oni]" << endl;
         cout << endl;
         cout << "Any other argument is ignored." << endl;
         cout << endl;
@@ -274,6 +274,8 @@ int main(int argc, char ** argv) {
     string normal_threshold_flag = getFlag(args, "--normal_threshold");
     config.normal_threshold = (normal_threshold_flag != "") ? atof(normal_threshold_flag.c_str()) : config.normal_threshold;
 
+    string replay_path = getFlag(args, "--replay"); // "" for no replay (use camera device)
+
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
     glutInit(&argc, argv);
@@ -305,7 +307,7 @@ int main(int argc, char ** argv) {
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
-    if(InitKinect(buffers, (unsigned char *)rgbImage.data())){
+    if(InitKinect(buffers, (unsigned char *)rgbImage.data(), replay_path)){
         cudaDeviceReset();
         return 1;
     }

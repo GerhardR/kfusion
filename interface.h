@@ -24,7 +24,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef INTERFACE_H
 #define INTERFACE_H
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer );
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const std::string & replay_path = "" );
 bool KinectFrameAvailable();
 int GetKinectFrame();
 void CloseKinect();
