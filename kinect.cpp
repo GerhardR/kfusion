@@ -26,6 +26,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "interface.h"
 #include "perfstats.h"
 
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -106,17 +107,17 @@ void display(void){
 
     glClear(GL_COLOR_BUFFER_BIT);
     glRasterPos2i(0, 0);
-    glDrawPixels(lightScene);
+    glDrawPixels(lightScene); // left top
     glRasterPos2i(0, 240);
     glPixelZoom(0.5, -0.5);
-    glDrawPixels(rgbImage);
+    glDrawPixels(rgbImage); // left bottom
     glPixelZoom(1,-1);
     glRasterPos2i(320,0);
-    glDrawPixels(lightModel);
+    glDrawPixels(lightModel); // middle top
     glRasterPos2i(320,240);
-    glDrawPixels(trackModel);
+    glDrawPixels(trackModel); // middle bottom
     glRasterPos2i(640, 0);
-    glDrawPixels(texModel);
+    glDrawPixels(texModel); // right
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
@@ -197,9 +198,24 @@ void exitFunc(void){
 }
 
 int main(int argc, char ** argv) {
-    const float size = (argc > 1) ? atof(argv[1]) : 2.f;
+    const float default_size = 2.f;
 
     KFusionConfig config;
+
+    // Search for --help argument
+    for (int i = 0; i < argc; ++i) {
+        if (string(argv[i]) == "--help") {
+            cout << "Usage: kinect [size] [dist_threshold] [normal_threshold]" << endl;
+            cout << endl;
+            cout << "Defaults:" << endl;
+            cout << "  size: " << default_size << endl;
+            cout << "  dist_threshold: " << config.dist_threshold << endl;
+            cout << "  normal_threshold: " << config.normal_threshold << endl;
+            return 0;
+        }
+    }
+
+    const float size = (argc > 1) ? atof(argv[1]) : default_size;
 
     // it is enough now to set the volume resolution once.
     // everything else is derived from that.
@@ -250,6 +266,9 @@ int main(int argc, char ** argv) {
         cudaDeviceReset();
         return 1;
     }
+
+    cout << "Using depthImage size: " << depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t) << " bytes " << endl;
+    cout << "Using rgbImage size: " << rgbImage.size.x*rgbImage.size.y * sizeof(uchar3) << " bytes " << endl;
 
     memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
     memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
