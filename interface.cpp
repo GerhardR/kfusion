@@ -139,11 +139,17 @@ DWORD WINAPI run(LPVOID pParam)
     return (0);
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path ){
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path, const string & simultaneous_recording_path ){
 
     if (replay_path != "")
     {
         cout << "Replaying a recording is not supported with MS_KINECT_INTERFACE!" << endl;
+        return 1;
+    }
+
+    if (simultaneous_recording_path != "")
+    {
+        cout << "Simultaneous recording is not supported with MS_KINECT_INTERFACE!" << endl;
         return 1;
     }
 
@@ -273,11 +279,17 @@ void *freenect_threadfunc(void *arg)
     return NULL;
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path ){
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path, const string & simultaneous_recording_path ){
 
     if (replay_path != "")
     {
         cout << "Replaying a recording is not supported with LIBFREENECT_INTERFACE!" << endl;
+        return 1;
+    }
+
+    if (simultaneous_recording_path != "")
+    {
+        cout << "Simultaneous recording is not supported with LIBFREENECT_INTERFACE!" << endl;
         return 1;
     }
 
@@ -353,6 +365,7 @@ using namespace openni;
 Device device;
 VideoStream depth_stream;
 VideoStream color_stream;
+Recorder recorder; // for simultaneous recording
 bool gotDepth = false; // set to true as soon as the first depth frame is received
 int depth_index = 0; // for flipping between the depth double buffers
 
@@ -446,7 +459,7 @@ void *openni_threadfunc(void *arg)
     return NULL;
 }
 
-int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path )
+int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const string & replay_path, const string & simultaneous_recording_path )
 {
     // The allocators must survive this initialization function.
     KFusionDepthFrameAllocator *depthAlloc = new KFusionDepthFrameAllocator(depth_buffer);
@@ -612,6 +625,15 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const st
         printf("OpenNI: Could not start the color stream\n%s\n", OpenNI::getExtendedError());
         OpenNI::shutdown();
         return 1;
+    }
+
+    // Simultaneous recording
+    if (simultaneous_recording_path != "")
+    {
+        recorder.create(simultaneous_recording_path.c_str());
+        recorder.attach(depth_stream);
+        recorder.attach(color_stream);
+        recorder.start();
     }
 
     // Start spawn thread running openni_threadfunc to poll for new frames
