@@ -197,25 +197,52 @@ void exitFunc(void){
     cudaDeviceReset();
 }
 
+// Look up the parameter to the given flag in argv.
+// Returns "" if the flag was not given.
+// Example: `string param = getFlag(argc, argv, "--flag")`
+// Inspired by: http://stackoverflow.com/a/868894/263061
+string getFlag(vector<string> & args, const string & flag)
+{
+    vector<string>::iterator itr = std::find(args.begin(), args.end(), flag);
+    if (itr != args.end() && ++itr != args.end())
+    {
+        return string(*itr);
+    }
+    return "";
+}
+
+// Tell if an argument-less flag was given.
+// Example: bool help = getFlag(argc, argv, "--help")
+bool haveSwitch(vector<string> & args, const string & flag)
+{
+    return std::find(args.begin(), args.end(), flag) != args.end();
+}
+
+
 int main(int argc, char ** argv) {
+
+    // Convert argv to vector
+    std::vector<string> args(argv + 1, argv + argc);
+
     const float default_size = 2.f;
 
     KFusionConfig config;
 
     // Search for --help argument
-    for (int i = 0; i < argc; ++i) {
-        if (string(argv[i]) == "--help") {
-            cout << "Usage: kinect [size] [dist_threshold] [normal_threshold]" << endl;
-            cout << endl;
-            cout << "Defaults:" << endl;
-            cout << "  size: " << default_size << endl;
-            cout << "  dist_threshold: " << config.dist_threshold << endl;
-            cout << "  normal_threshold: " << config.normal_threshold << endl;
-            return 0;
-        }
+    if (haveSwitch(args, "--help")) {
+        cout << "Usage: kinect [--size METERS] [--dist_threshold METERS] [--normal_threshold METERS]" << endl;
+        cout << endl;
+        cout << "Any other argument is ignored." << endl;
+        cout << endl;
+        cout << "Defaults:" << endl;
+        cout << "  --size " << default_size << endl;
+        cout << "  --dist_threshold " << config.dist_threshold << endl;
+        cout << "  --normal_threshold " << config.normal_threshold << endl;
+        return 0;
     }
 
-    const float size = (argc > 1) ? atof(argv[1]) : default_size;
+    string size_flag = getFlag(args, "--size");
+    const float size = (size_flag != "") ? atof(size_flag.c_str()) : default_size;
 
     // it is enough now to set the volume resolution once.
     // everything else is derived from that.
@@ -241,8 +268,11 @@ int main(int argc, char ** argv) {
     config.iterations[1] = 5;
     config.iterations[2] = 4;
 
-    config.dist_threshold = (argc > 2 ) ? atof(argv[2]) : config.dist_threshold;
-    config.normal_threshold = (argc > 3 ) ? atof(argv[3]) : config.normal_threshold;
+    string dist_threshold_flag = getFlag(args, "--dist_threshold");
+    config.dist_threshold = (dist_threshold_flag != "") ? atof(dist_threshold_flag.c_str()) : config.dist_threshold;
+
+    string normal_threshold_flag = getFlag(args, "--normal_threshold");
+    config.normal_threshold = (normal_threshold_flag != "") ? atof(normal_threshold_flag.c_str()) : config.normal_threshold;
 
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
