@@ -481,7 +481,7 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const st
     OpenNI::enumerateDevices(&deviceList);
     int nr_devices = deviceList.getSize();
 
-    if(nr_devices < 1) {
+    if(replay_path == "" && nr_devices < 1) {
         cout << "OpenNI: No devices found" << endl;
         OpenNI::shutdown();
         return 1;
@@ -523,28 +523,34 @@ int InitKinect( uint16_t * depth_buffer[2], unsigned char * rgb_buffer, const st
         }
     }
 
-    // Choose what depth format we want from the camera
-    VideoMode depth_mode;
-    depth_mode.setPixelFormat(PIXEL_FORMAT_DEPTH_1_MM);
-    depth_mode.setResolution(640, 480);
-    depth_mode.setFps(30);
-    status = depth_stream.setVideoMode(depth_mode);
-    if (status != STATUS_OK) {
-        printf("OpenNI: Could not set depth video mode:\n%s\n", OpenNI::getExtendedError());
-        OpenNI::shutdown();
-        return 1;
-    }
+    // Setting video modes is only necessary if we're using a real camera.
+    if (replay_path == "") {
 
-    // Choose what color format we want from the camera
-    VideoMode color_mode;
-    color_mode.setPixelFormat(PIXEL_FORMAT_RGB888);
-    color_mode.setResolution(640, 480);
-    color_mode.setFps(30);
-    status = color_stream.setVideoMode(color_mode);
-    if (status != STATUS_OK) {
-        printf("OpenNI: Could not set color video mode:\n%s\n", OpenNI::getExtendedError());
-        OpenNI::shutdown();
-        return 1;
+        // Choose what depth format we want from the camera
+        VideoMode depth_mode;
+        depth_mode.setPixelFormat(PIXEL_FORMAT_DEPTH_1_MM);
+        depth_mode.setResolution(640, 480);
+        depth_mode.setFps(30);
+        status = depth_stream.setVideoMode(depth_mode);
+        if (status != STATUS_OK) {
+            printf("OpenNI: Could not set depth video mode:\n%s\n", OpenNI::getExtendedError());
+            OpenNI::shutdown();
+            return 1;
+        }
+
+
+        // Choose what color format we want from the camera
+        VideoMode color_mode;
+        color_mode.setPixelFormat(PIXEL_FORMAT_RGB888);
+        color_mode.setResolution(640, 480);
+        color_mode.setFps(30);
+        status = color_stream.setVideoMode(color_mode);
+        if (status != STATUS_OK) {
+            printf("OpenNI: Could not set color video mode:\n%s\n", OpenNI::getExtendedError());
+            OpenNI::shutdown();
+            return 1;
+        }
+
     }
 
     // Enable registration mode
