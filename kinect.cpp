@@ -26,6 +26,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "interface.h"
 #include "perfstats.h"
 
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -106,17 +107,17 @@ void display(void){
 
     glClear(GL_COLOR_BUFFER_BIT);
     glRasterPos2i(0, 0);
-    glDrawPixels(lightScene);
+    glDrawPixels(lightScene); // left top
     glRasterPos2i(0, 240);
     glPixelZoom(0.5, -0.5);
-    glDrawPixels(rgbImage);
+    glDrawPixels(rgbImage); // left bottom
     glPixelZoom(1,-1);
     glRasterPos2i(320,0);
-    glDrawPixels(lightModel);
+    glDrawPixels(lightModel); // middle top
     glRasterPos2i(320,240);
-    glDrawPixels(trackModel);
+    glDrawPixels(trackModel); // middle bottom
     glRasterPos2i(640, 0);
-    glDrawPixels(texModel);
+    glDrawPixels(texModel); // right
     const double endProcessing = Stats.sample("draw");
 
     Stats.sample("total", endProcessing - startFrame, PerfStats::TIME);
@@ -196,10 +197,52 @@ void exitFunc(void){
     cudaDeviceReset();
 }
 
+// Look up the parameter to the given flag in argv.
+// Returns "" if the flag was not given.
+// Example: `string param = getFlag(argc, argv, "--flag")`
+// Inspired by: http://stackoverflow.com/a/868894/263061
+string getFlag(vector<string> & args, const string & flag)
+{
+    vector<string>::iterator itr = std::find(args.begin(), args.end(), flag);
+    if (itr != args.end() && ++itr != args.end())
+    {
+        return string(*itr);
+    }
+    return "";
+}
+
+// Tell if an argument-less flag was given.
+// Example: bool help = getFlag(argc, argv, "--help")
+bool haveSwitch(vector<string> & args, const string & flag)
+{
+    return std::find(args.begin(), args.end(), flag) != args.end();
+}
+
+
 int main(int argc, char ** argv) {
-    const float size = (argc > 1) ? atof(argv[1]) : 2.f;
+
+    // Convert argv to vector
+    std::vector<string> args(argv + 1, argv + argc);
+
+    const float default_size = 2.f;
 
     KFusionConfig config;
+
+    // Search for --help argument
+    if (haveSwitch(args, "--help")) {
+        cout << "Usage: kinect [--size METERS] [--dist_threshold METERS] [--normal_threshold METERS] [--simultaneous-recording PATH.oni] [--replay PATH.oni]" << endl;
+        cout << endl;
+        cout << "Any other argument is ignored." << endl;
+        cout << endl;
+        cout << "Defaults:" << endl;
+        cout << "  --size " << default_size << endl;
+        cout << "  --dist_threshold " << config.dist_threshold << endl;
+        cout << "  --normal_threshold " << config.normal_threshold << endl;
+        return 0;
+    }
+
+    string size_flag = getFlag(args, "--size");
+    const float size = (size_flag != "") ? atof(size_flag.c_str()) : default_size;
 
     // it is enough now to set the volume resolution once.
     // everything else is derived from that.
@@ -225,8 +268,15 @@ int main(int argc, char ** argv) {
     config.iterations[1] = 5;
     config.iterations[2] = 4;
 
-    config.dist_threshold = (argc > 2 ) ? atof(argv[2]) : config.dist_threshold;
-    config.normal_threshold = (argc > 3 ) ? atof(argv[3]) : config.normal_threshold;
+    string dist_threshold_flag = getFlag(args, "--dist_threshold");
+    config.dist_threshold = (dist_threshold_flag != "") ? atof(dist_threshold_flag.c_str()) : config.dist_threshold;
+
+    string normal_threshold_flag = getFlag(args, "--normal_threshold");
+    config.normal_threshold = (normal_threshold_flag != "") ? atof(normal_threshold_flag.c_str()) : config.normal_threshold;
+
+    string replay_path = getFlag(args, "--replay"); // "" for no replay (use camera device)
+
+    string simultaneous_recording_path = getFlag(args, "--simultaneous-recording"); // "" for no recording
 
     initPose = SE3<float>(makeVector(size/2, size/2, 0, 0, 0, 0));
 
@@ -251,12 +301,15 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    cout << "Using depthImage size: " << depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t) << " bytes " << endl;
+    cout << "Using rgbImage size: " << rgbImage.size.x*rgbImage.size.y * sizeof(uchar3) << " bytes " << endl;
+
     memset(depthImage[0].data(), 0, depthImage[0].size.x*depthImage[0].size.y * sizeof(uint16_t));
     memset(depthImage[1].data(), 0, depthImage[1].size.x*depthImage[1].size.y * sizeof(uint16_t));
     memset(rgbImage.data(), 0, rgbImage.size.x*rgbImage.size.y * sizeof(uchar3));
 
     uint16_t * buffers[2] = {depthImage[0].data(), depthImage[1].data()};
-    if(InitKinect(buffers, (unsigned char *)rgbImage.data())){
+    if(InitKinect(buffers, (unsigned char *)rgbImage.data(), replay_path, simultaneous_recording_path)){
         cudaDeviceReset();
         return 1;
     }
